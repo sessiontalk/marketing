@@ -8,14 +8,13 @@ import {
   sendLogs,
   unsubscribeTokens,
 } from "@/db/schema";
-import { resend, FROM_EMAIL, REPLY_TO } from "@/lib/resend";
+import { sendEmail } from "@/lib/email";
 import { generateUnsubscribeToken, getUnsubscribeUrl } from "@/lib/tokens";
-import { eq, and, lte, isNull } from "drizzle-orm";
+import { eq, and, lte } from "drizzle-orm";
 
-const BATCH_SIZE = 50; // Process up to 50 emails per cron run
+const BATCH_SIZE = 50;
 
 export async function POST(req: NextRequest) {
-  // Verify cron auth (Vercel Cron sends a bearer token)
   const authHeader = req.headers.get("authorization");
   if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -23,7 +22,6 @@ export async function POST(req: NextRequest) {
 
   const now = new Date();
 
-  // Find enrollments that are due for their next send
   const dueEnrollments = await db
     .select({
       enrollment: sequenceEnrollments,
@@ -43,7 +41,6 @@ export async function POST(req: NextRequest) {
   let failed = 0;
 
   for (const { enrollment, contact } of dueEnrollments) {
-    // Skip unsubscribed contacts
     if (contact.unsubscribed) {
       await db
         .update(sequenceEnrollments)
@@ -52,7 +49,6 @@ export async function POST(req: NextRequest) {
       continue;
     }
 
-    // Get the current step
     const nextStepOrder = (enrollment.currentStepOrder || 0) + 1;
 
     const [step] = await db
@@ -66,7 +62,6 @@ export async function POST(req: NextRequest) {
       );
 
     if (!step) {
-      // No more steps — sequence complete
       await db
         .update(sequenceEnrollments)
         .set({ status: "completed", completedAt: now })
@@ -74,7 +69,6 @@ export async function POST(req: NextRequest) {
       continue;
     }
 
-    // Get template
     const [template] = await db
       .select()
       .from(templates)
@@ -85,7 +79,6 @@ export async function POST(req: NextRequest) {
       continue;
     }
 
-    // Generate unsubscribe token
     const unsubToken = generateUnsubscribeToken();
     await db.insert(unsubscribeTokens).values({
       token: unsubToken,
@@ -94,7 +87,6 @@ export async function POST(req: NextRequest) {
 
     const unsubUrl = getUnsubscribeUrl(unsubToken);
 
-    // Personalize content
     const subject = (step.subject || template.subject).replace(
       "{{firstname}}",
       contact.firstname || "there"
@@ -105,33 +97,26 @@ export async function POST(req: NextRequest) {
       .replace(/{{unsubscribe_url}}/g, unsubUrl);
 
     try {
-      const result = await resend.emails.send({
-        from: FROM_EMAIL,
+      const result = await sendEmail({
         to: contact.email,
-        replyTo: REPLY_TO,
         subject,
         html: htmlBody,
         text: template.textBody || undefined,
-        headers: {
-          "List-Unsubscribe": `<${unsubUrl}>`,
-          "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+        unsubscribeUrl: unsubUrl,
+        tags: {
+          sequence_id: enrollment.sequenceId,
+          step: String(nextStepOrder),
         },
-        tags: [
-          { name: "sequence_id", value: enrollment.sequenceId },
-          { name: "step", value: String(nextStepOrder) },
-        ],
       });
 
-      // Log the send
       await db.insert(sendLogs).values({
         contactId: contact.id,
         templateId: template.id,
         enrollmentId: enrollment.id,
-        resendId: result.data?.id,
+        resendId: result.id, // reuse the field for SES MessageId
         status: "sent",
       });
 
-      // Advance enrollment to next step
       const nextSendAt = new Date(
         now.getTime() + (step.delayHours || 0) * 60 * 60 * 1000
       );

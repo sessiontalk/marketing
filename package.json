@@ -16,7 +16,7 @@
     "next": "^14.2.0",
     "react": "^18.3.0",
     "react-dom": "^18.3.0",
-    "resend": "^4.0.0",
+    "@aws-sdk/client-sesv2": "^3.700.0",
     "@react-email/components": "^0.0.25",
     "react-email": "^3.0.0",
     "drizzle-orm": "^0.36.0",
