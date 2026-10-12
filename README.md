@@ -109,3 +109,7 @@ The welcome drip sequence:
 1. **Immediate** — Welcome email
 2. **48 hours** — Getting started guide
 3. **120 hours (5 days)** — Upgrade CTA
+
+## Automated email kill switch
+`DRIP_SENDING_ENABLED` must equal `true` for /api/worker/sequences or /api/worker/trial-nurture to send anything. Unset/any other value = no-op. Both workers also require `CRON_SECRET` (Vercel Cron sends `Authorization: Bearer $CRON_SECRET` on a GET).
+The legacy softphone "Welcome Drip" sequence is retired in code and can never send.

@@ -1,0 +1,49 @@
+import { NextRequest, NextResponse } from "next/server";
+import { db } from "@/db";
+import { contacts, trialAccounts, trialNurtureSteps } from "@/db/schema";
+import { eq } from "drizzle-orm";
+import { isDripSendingEnabled } from "@/lib/killSwitch";
+import { decide, render, Step } from "@/lib/trialNurture/schedule";
+import { NURTURE_COPY } from "@/lib/trialNurture/copy";
+import { sendEmail, SALES_FROM_EMAIL, SALES_REPLY_TO } from "@/lib/email";
+
+const BATCH = 50;
+
+async function run(req: NextRequest) {
+  if (!process.env.CRON_SECRET || req.headers.get("authorization") !== `Bearer ${process.env.CRON_SECRET}`)
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  // Kill switch BEFORE any DB access: when off this route is a pure no-op.
+  if (!isDripSendingEnabled()) return NextResponse.json({ enabled: false, sent: 0 });
+
+  const now = new Date();
+  const rows = await db.select({ t: trialAccounts, c: contacts }).from(trialAccounts)
+    .innerJoin(contacts, eq(trialAccounts.contactId, contacts.id))
+    .where(eq(trialAccounts.planStatus, "trial")).limit(BATCH);
+  let sent = 0, skipped = 0, failed = 0;
+
+  for (const { t, c } of rows) {
+    const done = await db.select({ step: trialNurtureSteps.step }).from(trialNurtureSteps).where(eq(trialNurtureSteps.trialAccountId, t.id));
+    const d = decide({ ...t, planStatus: t.planStatus as any, unsubscribed: !!c.unsubscribed, sentSteps: done.map((r) => r.step as Step) }, now);
+    if (d.action === "wait" || d.action === "stop") continue;
+    const copy = NURTURE_COPY.find((x) => x.step === d.step)!;
+    if (d.action === "send" && !copy.final) continue; // step 3 copy not final yet: hold, don't skip
+    // Claim the step first (unique (trial, step)) so concurrent runs can never double-send.
+    const claimed = await db.insert(trialNurtureSteps)
+      .values({ trialAccountId: t.id, step: d.step, status: d.action === "skip" ? "skipped" : "sending", reason: d.action === "skip" ? d.reason : null })
+      .onConflictDoNothing().returning();
+    if (!claimed.length || d.action === "skip") { skipped++; continue; }
+    try {
+      const r = await sendEmail({ to: c.email, subject: copy.subject, text: render(copy.body, c.firstname),
+        from: SALES_FROM_EMAIL, replyTo: SALES_REPLY_TO, tags: { nurture: "sessionpbx_trial", step: String(d.step) } });
+      await db.update(trialNurtureSteps).set({ status: "sent", sesMessageId: r.id }).where(eq(trialNurtureSteps.id, claimed[0].id));
+      sent++;
+    } catch (err: any) {
+      await db.update(trialNurtureSteps).set({ status: "failed", reason: String(err?.name || "error").slice(0, 64) }).where(eq(trialNurtureSteps.id, claimed[0].id));
+      failed++;
+    }
+  }
+  return NextResponse.json({ enabled: true, processed: rows.length, sent, skipped, failed });
+}
+
+export const GET = run;  // Vercel Cron invokes GET
+export const POST = run;
