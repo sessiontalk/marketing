@@ -163,7 +163,9 @@ export const trialAccounts = pgTable("trial_accounts", {
   contactId: uuid("contact_id").references(() => contacts.id).notNull(),
   appId: varchar("app_id", { length: 64 }).notNull().unique(), // SessionCloud project/app id
   product: varchar("product", { length: 30 }).notNull(),
-  accountName: varchar("account_name", { length: 128 }), // SessionCloud accountName for in-app links
+  accountName: varchar("account_name", { length: 128 }), // SessionCloud accountName for billing links
+  sipDomain: varchar("sip_domain", { length: 253 }), // tenants.sip_domain (.sip host) for workspace links
+  bccInternal: boolean("bcc_internal").default(false).notNull(), // stable: BCC reviewer on first N after sending on
   enrolledAt: timestamp("enrolled_at").defaultNow().notNull(),
   trialStartedAt: timestamp("trial_started_at").notNull(),
   trialEndsAt: timestamp("trial_ends_at"),

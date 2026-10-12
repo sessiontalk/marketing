@@ -20,6 +20,7 @@ interface SendEmailParams {
   tags?: Record<string, string>;
   from?: string;
   replyTo?: string;
+  bcc?: string[];
 }
 
 // Trial nurture sender: Maryam personally. Never sales@ or chief@.
@@ -35,12 +36,14 @@ export async function sendEmail({
   tags,
   from,
   replyTo,
+  bcc,
 }: SendEmailParams) {
   const command = new SendEmailCommand({
     FromEmailAddress: from || FROM_EMAIL,
     ReplyToAddresses: [replyTo || REPLY_TO],
     Destination: {
       ToAddresses: [to],
+      ...(bcc && bcc.length ? { BccAddresses: bcc } : {}),
     },
     Content: {
       Simple: {

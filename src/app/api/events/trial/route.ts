@@ -3,7 +3,9 @@ import { db } from "@/db";
 import { contacts, trialAccounts, processedEvents } from "@/db/schema";
 import { verifyWebhookSignature } from "@/lib/auth";
 import { TrialEvent } from "@/lib/trialNurture/events";
-import { eq, sql } from "drizzle-orm";
+import { assignBccInternal } from "@/lib/trialNurture/bcc";
+import { isDripSendingEnabled } from "@/lib/killSwitch";
+import { eq, sql, count } from "drizzle-orm";
 
 /**
  * SessionCloud → CRM activity events for NEW SessionPBX (Teams/Hosted) trials.
@@ -42,8 +44,15 @@ export async function POST(req: NextRequest) {
 
   if (e.event === "trial.started") {
     if (!e.product) return NextResponse.json({ error: "product required" }, { status: 400 });
+    // BCC flag is sticky: count earlier flagged trials enrolled since sending was enabled.
+    const [{ flagged }] = await db.select({ flagged: count() }).from(trialAccounts).where(eq(trialAccounts.bccInternal, true));
+    const bccInternal = assignBccInternal({
+      sendingEnabled: isDripSendingEnabled(),
+      earlierFlaggedCount: Number(flagged) || 0,
+    });
     await db.insert(trialAccounts).values({
-      contactId: contact.id, appId: e.app_id, product: e.product, accountName: e.account_name, trialStartedAt: at,
+      contactId: contact.id, appId: e.app_id, product: e.product,
+      accountName: e.account_name, sipDomain: e.sip_domain, bccInternal, trialStartedAt: at,
       trialEndsAt: e.trial_ends_at ? new Date(e.trial_ends_at) : null,
     }).onConflictDoNothing();
     return NextResponse.json({ ok: true });
@@ -51,6 +60,7 @@ export async function POST(req: NextRequest) {
 
   const set: Record<string, unknown> = { updatedAt: new Date() };
   if (e.account_name) set.accountName = e.account_name;
+  if (e.sip_domain) set.sipDomain = e.sip_domain;
   const first = (col: any) => sql`coalesce(${col}, ${at})`;
   switch (e.event) {
     case "project.created": set.projectCreatedAt = first(trialAccounts.projectCreatedAt); break;

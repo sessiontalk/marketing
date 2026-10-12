@@ -82,9 +82,21 @@ export function decide(s: TrialState, now: Date): Decision {
   return { action: "wait", nextAt: next };
 }
 
-export function render(body: string, firstName: string | null | undefined, accountName?: string | null): string {
+export interface RenderFields {
+  accountName?: string | null;
+  /** SessionCloud public.tenants.sip_domain — use as-is (includes .sip). Never derive a non-.sip host. */
+  sipDomain?: string | null;
+}
+
+/** Fill placeholders. Caller must hold when missingLinkFields(step, fields) is non-empty. */
+export function render(body: string, firstName: string | null | undefined, fields: RenderFields = {}): string {
   const name = (firstName || "").trim();
-  let out = name ? body.replace(/\{first_name\}/g, name) : body.replace(/Hi \{first_name\},/g, "Hi there,").replace(/\{first_name\}/g, "there");
-  if (accountName) out = out.replace(/\{accountName\}/g, encodeURIComponent(accountName));
+  let out = name
+    ? body.replace(/\{first_name\}/g, name)
+    : body.replace(/Hi \{first_name\},/g, "Hi there,").replace(/\{first_name\}/g, "there");
+  const sip = (fields.sipDomain || "").trim();
+  if (sip) out = out.replace(/\{sip_domain\}/g, sip);
+  const acct = (fields.accountName || "").trim();
+  if (acct) out = out.replace(/\{accountName\}/g, encodeURIComponent(acct));
   return out;
 }
