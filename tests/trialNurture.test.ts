@@ -6,7 +6,7 @@ import { NURTURE_COPY } from "../src/lib/trialNurture/copy";
 
 const H = 3_600_000, D = 24 * H, T0 = new Date("2026-11-01T09:00:00Z");
 const base = (o: Partial<TrialState> = {}): TrialState => ({
-  enrolledAt: T0, trialStartedAt: T0, trialEndsAt: new Date(T0.getTime() + 14 * D), projectCreatedAt: T0,
+  enrolledAt: T0, product: "teams_business", trialStartedAt: T0, trialEndsAt: new Date(T0.getTime() + 14 * D), projectCreatedAt: T0,
   extensionCount: 0, softphoneFirstLoginAt: null, firstCallAt: null, carrierConnectedAt: null,
   salesCallBookedAt: null, salesCallHeldAt: null, lastInboundReplyAt: null, paymentMethodAddedAt: null,
   planStatus: "trial", unsubscribed: false, sentSteps: [], ...o });
@@ -57,14 +57,29 @@ test("no backfill: steps due long before enrolment are skipped", () => {
   const s = base({ trialStartedAt: new Date(T0.getTime() - 10 * D), projectCreatedAt: new Date(T0.getTime() - 10 * D), trialEndsAt: at(4 * D) });
   assert.equal((decide(s, T0) as any).reason, "before_enrolment");
 });
-test("copy: 5 steps, plain text, step 3 not final, greeting fallback, no Microsoft", () => {
+test("step 3 skipped for Teams Phone", () => {
+  const s = base({ sentSteps: [1, 2], product: "teams_phone" });
+  assert.equal((decide(s, at(3 * D)) as any).reason, "teams_phone_plan");
+});
+test("copy: 5 steps, plain text, all final, maryam signature, greeting fallback, no Microsoft", () => {
   assert.deepEqual(NURTURE_COPY.map((c) => c.step), [1, 2, 3, 4, 5]);
-  assert.equal(NURTURE_COPY.find((c) => c.step === 3)!.final, false);
+  assert.ok(NURTURE_COPY.every((c) => c.final));
   for (const c of NURTURE_COPY) {
     assert.ok(c.body.startsWith("Hi {first_name},"));
     assert.ok(!/microsoft/i.test(c.body + c.subject));
+    assert.ok(/Maryam Fatima\nSessionTalk\nmaryam@sessiontalk\.co\.uk$/.test(c.body));
+    assert.ok(!/(sales|chief)@/.test(c.body));
     assert.ok(!/<[a-z]+[ >]/i.test(c.body));
   }
   assert.ok(render("Hi {first_name},\nx", "").startsWith("Hi there,"));
   assert.ok(render("Hi {first_name},\nx", "Sam").startsWith("Hi Sam,"));
+});
+test("sender is maryam@, never sales@/chief@", async () => {
+  process.env.AWS_SES_REGION ||= "eu-west-2";
+  const m = await import("../src/lib/email");
+  assert.equal(m.NURTURE_FROM_EMAIL, "Maryam Fatima <maryam@sessiontalk.co.uk>");
+  assert.ok(!/(sales|chief)@/.test(m.NURTURE_FROM_EMAIL + m.NURTURE_REPLY_TO));
+});
+test("render fills accountName", () => {
+  assert.equal(render("x/{accountName}", "A", "acme co"), "x/acme%20co");
 });

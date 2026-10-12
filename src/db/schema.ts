@@ -163,6 +163,7 @@ export const trialAccounts = pgTable("trial_accounts", {
   contactId: uuid("contact_id").references(() => contacts.id).notNull(),
   appId: varchar("app_id", { length: 64 }).notNull().unique(), // SessionCloud project/app id
   product: varchar("product", { length: 30 }).notNull(),
+  accountName: varchar("account_name", { length: 128 }), // SessionCloud accountName for in-app links
   enrolledAt: timestamp("enrolled_at").defaultNow().notNull(),
   trialStartedAt: timestamp("trial_started_at").notNull(),
   trialEndsAt: timestamp("trial_ends_at"),

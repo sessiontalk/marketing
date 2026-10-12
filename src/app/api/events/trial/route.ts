@@ -43,13 +43,14 @@ export async function POST(req: NextRequest) {
   if (e.event === "trial.started") {
     if (!e.product) return NextResponse.json({ error: "product required" }, { status: 400 });
     await db.insert(trialAccounts).values({
-      contactId: contact.id, appId: e.app_id, product: e.product, trialStartedAt: at,
+      contactId: contact.id, appId: e.app_id, product: e.product, accountName: e.account_name, trialStartedAt: at,
       trialEndsAt: e.trial_ends_at ? new Date(e.trial_ends_at) : null,
     }).onConflictDoNothing();
     return NextResponse.json({ ok: true });
   }
 
   const set: Record<string, unknown> = { updatedAt: new Date() };
+  if (e.account_name) set.accountName = e.account_name;
   const first = (col: any) => sql`coalesce(${col}, ${at})`;
   switch (e.event) {
     case "project.created": set.projectCreatedAt = first(trialAccounts.projectCreatedAt); break;
@@ -58,7 +59,7 @@ export async function POST(req: NextRequest) {
     case "call.completed": set.firstCallAt = first(trialAccounts.firstCallAt); break;
     case "trunk.connected": case "number.added": set.carrierConnectedAt = first(trialAccounts.carrierConnectedAt); break;
     case "card.added": set.paymentMethodAddedAt = first(trialAccounts.paymentMethodAddedAt); break;
-    case "plan.changed": if (e.plan_status) set.planStatus = e.plan_status; if (e.trial_ends_at) set.trialEndsAt = new Date(e.trial_ends_at); break;
+    case "plan.changed": if (e.plan_status) set.planStatus = e.plan_status; if (e.product) set.product = e.product; if (e.trial_ends_at) set.trialEndsAt = new Date(e.trial_ends_at); break;
     case "trial.cancelled": set.planStatus = "cancelled"; break;
   }
   // Unknown app_id (trial began before this went live) => no row => no-op. No backfill.

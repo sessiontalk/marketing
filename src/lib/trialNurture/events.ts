@@ -14,6 +14,7 @@ export const TrialEvent = z.object({
   app_id: z.string().optional(),           // SessionCloud app/project id
   product: z.enum(["teams_phone", "teams_business", "hosted"]).optional(),
   firstname: z.string().optional(),
+  account_name: z.string().min(1).max(128).optional(), // SessionCloud accountName (links)
   trial_ends_at: z.string().datetime().optional(),
   extension_count: z.number().int().min(0).optional(),
   plan_status: z.enum(["trial", "paid", "cancelled"]).optional(),

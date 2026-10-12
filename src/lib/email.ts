@@ -22,8 +22,9 @@ interface SendEmailParams {
   replyTo?: string;
 }
 
-export const SALES_FROM_EMAIL = "Maryam Fatima <sales@sessiontalk.co.uk>";
-export const SALES_REPLY_TO = "sales@sessiontalk.co.uk";
+// Trial nurture sender: Maryam personally. Never sales@ or chief@.
+export const NURTURE_FROM_EMAIL = "Maryam Fatima <maryam@sessiontalk.co.uk>";
+export const NURTURE_REPLY_TO = "maryam@sessiontalk.co.uk";
 
 export async function sendEmail({
   to,

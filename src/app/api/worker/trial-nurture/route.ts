@@ -5,7 +5,7 @@ import { eq } from "drizzle-orm";
 import { isDripSendingEnabled } from "@/lib/killSwitch";
 import { decide, render, Step } from "@/lib/trialNurture/schedule";
 import { NURTURE_COPY } from "@/lib/trialNurture/copy";
-import { sendEmail, SALES_FROM_EMAIL, SALES_REPLY_TO } from "@/lib/email";
+import { sendEmail, NURTURE_FROM_EMAIL, NURTURE_REPLY_TO } from "@/lib/email";
 
 const BATCH = 50;
 
@@ -23,18 +23,20 @@ async function run(req: NextRequest) {
 
   for (const { t, c } of rows) {
     const done = await db.select({ step: trialNurtureSteps.step }).from(trialNurtureSteps).where(eq(trialNurtureSteps.trialAccountId, t.id));
-    const d = decide({ ...t, planStatus: t.planStatus as any, unsubscribed: !!c.unsubscribed, sentSteps: done.map((r) => r.step as Step) }, now);
+    const d = decide({ ...t, product: t.product as any, planStatus: t.planStatus as any, unsubscribed: !!c.unsubscribed, sentSteps: done.map((r) => r.step as Step) }, now);
     if (d.action === "wait" || d.action === "stop") continue;
     const copy = NURTURE_COPY.find((x) => x.step === d.step)!;
-    if (d.action === "send" && !copy.final) continue; // step 3 copy not final yet: hold, don't skip
+    if (d.action === "send" && !copy.final) continue; // copy not final: hold, don't skip
+    // Copy links need {accountName}; hold (don't send a broken link) until SessionCloud supplies it.
+    if (d.action === "send" && copy.body.includes("{accountName}") && !t.accountName) continue;
     // Claim the step first (unique (trial, step)) so concurrent runs can never double-send.
     const claimed = await db.insert(trialNurtureSteps)
       .values({ trialAccountId: t.id, step: d.step, status: d.action === "skip" ? "skipped" : "sending", reason: d.action === "skip" ? d.reason : null })
       .onConflictDoNothing().returning();
     if (!claimed.length || d.action === "skip") { skipped++; continue; }
     try {
-      const r = await sendEmail({ to: c.email, subject: copy.subject, text: render(copy.body, c.firstname),
-        from: SALES_FROM_EMAIL, replyTo: SALES_REPLY_TO, tags: { nurture: "sessionpbx_trial", step: String(d.step) } });
+      const r = await sendEmail({ to: c.email, subject: copy.subject, text: render(copy.body, c.firstname, t.accountName),
+        from: NURTURE_FROM_EMAIL, replyTo: NURTURE_REPLY_TO, tags: { nurture: "sessionpbx_trial", step: String(d.step) } });
       await db.update(trialNurtureSteps).set({ status: "sent", sesMessageId: r.id }).where(eq(trialNurtureSteps.id, claimed[0].id));
       sent++;
     } catch (err: any) {

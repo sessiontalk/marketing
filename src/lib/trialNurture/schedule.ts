@@ -6,7 +6,8 @@
 export type Step = 1 | 2 | 3 | 4 | 5;
 
 export interface TrialState {
-  enrolledAt: Date;               // when the CRM first saw trial.started (go-forward only)
+  enrolledAt: Date;
+  product: "teams_phone" | "teams_business" | "hosted";               // when the CRM first saw trial.started (go-forward only)
   trialStartedAt: Date;
   trialEndsAt: Date | null;
   projectCreatedAt: Date | null;
@@ -46,7 +47,8 @@ export function skipReason(step: Step, s: TrialState, now: Date): string | null 
   switch (step) {
     case 1: return s.extensionCount > 0 ? "has_extension" : null;
     case 2: return s.softphoneFirstLoginAt && s.firstCallAt ? "softphone_and_call_done" : null;
-    case 3: return s.carrierConnectedAt ? "carrier_connected" : null;
+    // Nauman 12 Oct: Call Routing/Trunks needs Teams Business, so email 3 never goes to Teams Phone trials.
+    case 3: return s.product === "teams_phone" ? "teams_phone_plan" : s.carrierConnectedAt ? "carrier_connected" : null;
     case 4: {
       if (s.salesCallBookedAt || s.salesCallHeldAt) return "sales_call";
       if (s.lastInboundReplyAt && now.getTime() - s.lastInboundReplyAt.getTime() < 7 * D) return "recent_reply";
@@ -80,7 +82,9 @@ export function decide(s: TrialState, now: Date): Decision {
   return { action: "wait", nextAt: next };
 }
 
-export function render(body: string, firstName: string | null | undefined): string {
+export function render(body: string, firstName: string | null | undefined, accountName?: string | null): string {
   const name = (firstName || "").trim();
-  return name ? body.replace(/\{first_name\}/g, name) : body.replace(/Hi \{first_name\},/g, "Hi there,").replace(/\{first_name\}/g, "there");
+  let out = name ? body.replace(/\{first_name\}/g, name) : body.replace(/Hi \{first_name\},/g, "Hi there,").replace(/\{first_name\}/g, "there");
+  if (accountName) out = out.replace(/\{accountName\}/g, encodeURIComponent(accountName));
+  return out;
 }
