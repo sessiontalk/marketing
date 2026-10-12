@@ -45,10 +45,12 @@ test("step 3 day3 skip on carrier", () => {
   assert.deepEqual(decide(s, at(3 * D)), { step: 3, action: "send" });
   assert.equal((decide({ ...s, carrierConnectedAt: T0 }, at(3 * D)) as any).reason, "carrier_connected");
 });
-test("step 4 day7 skips on sales call / recent reply / short trial", () => {
+test("step 4 day7 skips on recent reply / short trial, not booked call", () => {
   const s = base({ sentSteps: [1, 2, 3] });
   assert.deepEqual(decide(s, at(7 * D)), { step: 4, action: "send" });
-  assert.equal((decide({ ...s, salesCallBookedAt: T0 }, at(7 * D)) as any).reason, "sales_call");
+  // Booked/held sales call no longer skips email 4 (Nauman/CoS 12 Oct).
+  assert.deepEqual(decide({ ...s, salesCallBookedAt: T0 }, at(7 * D)), { step: 4, action: "send" });
+  assert.deepEqual(decide({ ...s, salesCallHeldAt: T0 }, at(7 * D)), { step: 4, action: "send" });
   assert.equal((decide({ ...s, lastInboundReplyAt: at(6 * D) }, at(7 * D)) as any).reason, "recent_reply");
   assert.equal((decide({ ...s, trialEndsAt: at(8 * D) }, at(7 * D)) as any).reason, "collides_with_step5");
 });
@@ -185,4 +187,16 @@ test("BCC: flag is stable (re-evaluating with higher count does not clear a prio
   assert.equal(recomputedWrongly, false);
   // Worker uses stored flag, so BCC still applies:
   assert.equal(storedAtEnrolment, true);
+});
+
+test("email 2 includes teammates test-call phrase", () => {
+  const s2 = NURTURE_COPY.find((c) => c.step === 2)!;
+  assert.ok(s2.body.includes("sign in on the softphone with one of your extensions and make a test call to one of your teammates."));
+});
+test("no nurture email contains 3CX, Yeastar, or a call offer", () => {
+  const banned = /3CX|Yeastar|15-minute|book a call|schedule a call|call with/i;
+  for (const c of NURTURE_COPY) {
+    const hay = `${c.subject}\n${c.body}`;
+    assert.equal(banned.test(hay), false, `step ${c.step} matched banned: ${hay.match(banned)?.[0]}`);
+  }
 });

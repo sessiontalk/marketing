@@ -50,7 +50,7 @@ export function skipReason(step: Step, s: TrialState, now: Date): string | null 
     // Nauman 12 Oct: Call Routing/Trunks needs Teams Business, so email 3 never goes to Teams Phone trials.
     case 3: return s.product === "teams_phone" ? "teams_phone_plan" : s.carrierConnectedAt ? "carrier_connected" : null;
     case 4: {
-      if (s.salesCallBookedAt || s.salesCallHeldAt) return "sales_call";
+      // Nauman/CoS 12 Oct: no booked-call skip; only recent reply (+ short-trial collision).
       if (s.lastInboundReplyAt && now.getTime() - s.lastInboundReplyAt.getTime() < 7 * D) return "recent_reply";
       // Short trial: don't let step 4 land on the same day as step 5.
       const d5 = dueAt(5, s);
