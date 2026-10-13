@@ -14,11 +14,18 @@ export const REPLY_TO = "support@sessiontalk.co.uk";
 interface SendEmailParams {
   to: string;
   subject: string;
-  html: string;
+  html?: string; // omit for plain-text-only mail
   text?: string;
   unsubscribeUrl?: string;
   tags?: Record<string, string>;
+  from?: string;
+  replyTo?: string;
+  bcc?: string[];
 }
+
+// Trial nurture sender: Maryam personally. Never sales@ or chief@.
+export const NURTURE_FROM_EMAIL = "Maryam Fatima <maryam@sessiontalk.co.uk>";
+export const NURTURE_REPLY_TO = "maryam@sessiontalk.co.uk";
 
 export async function sendEmail({
   to,
@@ -27,18 +34,22 @@ export async function sendEmail({
   text,
   unsubscribeUrl,
   tags,
+  from,
+  replyTo,
+  bcc,
 }: SendEmailParams) {
   const command = new SendEmailCommand({
-    FromEmailAddress: FROM_EMAIL,
-    ReplyToAddresses: [REPLY_TO],
+    FromEmailAddress: from || FROM_EMAIL,
+    ReplyToAddresses: [replyTo || REPLY_TO],
     Destination: {
       ToAddresses: [to],
+      ...(bcc && bcc.length ? { BccAddresses: bcc } : {}),
     },
     Content: {
       Simple: {
         Subject: { Data: subject },
         Body: {
-          Html: { Data: html },
+          ...(html ? { Html: { Data: html } } : {}),
           ...(text ? { Text: { Data: text } } : {}),
         },
       },

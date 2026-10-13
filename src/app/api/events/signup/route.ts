@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { contacts, sequences, sequenceEnrollments } from "@/db/schema";
 import { verifyWebhookSignature } from "@/lib/auth";
-import { and, eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
+import { RETIRED_SEQUENCE_NAMES } from "@/lib/killSwitch";
 
 export async function POST(req: NextRequest) {
   const rawBody = await req.text();
@@ -70,10 +71,13 @@ export async function POST(req: NextRequest) {
   const signupSequences = await db
     .select()
     .from(sequences)
+    // BUGFIX: chained .where() replaced the first filter, so inactive sequences were
+    // enrolled too. Combine with and(); never enrol into retired legacy sequences.
     .where(and(eq(sequences.triggerEvent, "signup"), eq(sequences.active, true)));
 
   const enrollments = [];
   for (const sequence of signupSequences) {
+    if (RETIRED_SEQUENCE_NAMES.has(sequence.name)) continue;
     const [enrollment] = await db
       .insert(sequenceEnrollments)
       .values({
@@ -83,6 +87,7 @@ export async function POST(req: NextRequest) {
         status: "active",
         nextSendAt: new Date(), // First email goes immediately (delay handled by step config)
       })
+      // relies on enrollments_contact_seq_live_uniq (migration 0001)
       .onConflictDoNothing()
       .returning();
     if (enrollment) enrollments.push(enrollment);

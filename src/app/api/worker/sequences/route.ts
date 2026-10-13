@@ -11,13 +11,22 @@ import {
 import { sendEmail } from "@/lib/email";
 import { generateUnsubscribeToken, getUnsubscribeUrl } from "@/lib/tokens";
 import { eq, and, lte } from "drizzle-orm";
+import { sequences } from "@/db/schema";
+import { isDripSendingEnabled, RETIRED_SEQUENCE_NAMES } from "@/lib/killSwitch";
 
 const BATCH_SIZE = 50;
 
-export async function POST(req: NextRequest) {
+// ROOT CAUSE FIX: Vercel Cron calls the path with GET (Authorization: Bearer $CRON_SECRET).
+// This route only exported POST, so every 5-minute cron got 405 and no enrolment was ever
+// processed. Export both. Also reject when CRON_SECRET is unset ("Bearer undefined").
+async function run(req: NextRequest) {
   const authHeader = req.headers.get("authorization");
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+  if (!process.env.CRON_SECRET || authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  // Hard kill switch (default off) — checked before touching the DB.
+  if (!isDripSendingEnabled()) {
+    return NextResponse.json({ enabled: false, processed: 0, sent: 0, failed: 0 });
   }
 
   const now = new Date();
@@ -26,12 +35,15 @@ export async function POST(req: NextRequest) {
     .select({
       enrollment: sequenceEnrollments,
       contact: contacts,
+      sequence: sequences,
     })
     .from(sequenceEnrollments)
     .innerJoin(contacts, eq(sequenceEnrollments.contactId, contacts.id))
+    .innerJoin(sequences, eq(sequenceEnrollments.sequenceId, sequences.id))
     .where(
       and(
         eq(sequenceEnrollments.status, "active"),
+        eq(sequences.active, true),
         lte(sequenceEnrollments.nextSendAt, now)
       )
     )
@@ -40,7 +52,8 @@ export async function POST(req: NextRequest) {
   let sent = 0;
   let failed = 0;
 
-  for (const { enrollment, contact } of dueEnrollments) {
+  for (const { enrollment, contact, sequence } of dueEnrollments) {
+    if (RETIRED_SEQUENCE_NAMES.has(sequence.name)) continue; // legacy softphone copy never sends
     if (contact.unsubscribed) {
       await db
         .update(sequenceEnrollments)
@@ -143,8 +156,12 @@ export async function POST(req: NextRequest) {
   }
 
   return NextResponse.json({
+    enabled: true,
     processed: dueEnrollments.length,
     sent,
     failed,
   });
 }
+
+export const GET = run;
+export const POST = run;

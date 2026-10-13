@@ -8,11 +8,13 @@ import {
   integer,
   jsonb,
   index,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 import { accounts } from "./accounts";
 
 export { accounts } from "./accounts";
 export { opportunities } from "./opportunities";
+import { sql } from "drizzle-orm";
 
 // ─── Contacts ───────────────────────────────────────────────────────
 
@@ -119,6 +121,10 @@ export const sequenceEnrollments = pgTable(
       t.contactId,
       t.sequenceId
     ),
+    // Idempotency: one live enrolment per contact per sequence (cancelled rows are history).
+    contactSeqUniq: uniqueIndex("enrollments_contact_seq_live_uniq")
+      .on(t.contactId, t.sequenceId)
+      .where(sql`status <> 'cancelled'`),
   })
 );
 
@@ -178,3 +184,49 @@ export const activities = pgTable(
     performedAtIdx: index("activities_performed_at_idx").on(t.performedAt),
   })
 );
+// ─── SessionPBX trial nurture (activity-triggered) ─────────────────
+
+export const trialAccounts = pgTable("trial_accounts", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  contactId: uuid("contact_id").references(() => contacts.id).notNull(),
+  appId: varchar("app_id", { length: 64 }).notNull().unique(), // SessionCloud project/app id
+  product: varchar("product", { length: 30 }).notNull(),
+  accountName: varchar("account_name", { length: 128 }), // SessionCloud accountName for billing links
+  sipDomain: varchar("sip_domain", { length: 253 }), // tenants.sip_domain (.sip host) for workspace links
+  bccInternal: boolean("bcc_internal").default(false).notNull(), // stable: BCC reviewer on first N after sending on
+  enrolledAt: timestamp("enrolled_at").defaultNow().notNull(),
+  trialStartedAt: timestamp("trial_started_at").notNull(),
+  trialEndsAt: timestamp("trial_ends_at"),
+  projectCreatedAt: timestamp("project_created_at"),
+  extensionCount: integer("extension_count").default(0).notNull(),
+  softphoneFirstLoginAt: timestamp("softphone_first_login_at"),
+  firstCallAt: timestamp("first_call_at"),
+  carrierConnectedAt: timestamp("carrier_connected_at"),
+  salesCallBookedAt: timestamp("sales_call_booked_at"),
+  salesCallHeldAt: timestamp("sales_call_held_at"),
+  lastInboundReplyAt: timestamp("last_inbound_reply_at"),
+  paymentMethodAddedAt: timestamp("payment_method_added_at"),
+  planStatus: varchar("plan_status", { length: 20 }).default("trial").notNull(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+/** One row per (trial, step): sent | skipped | failed. Unique => a step can never send twice. */
+export const trialNurtureSteps = pgTable(
+  "trial_nurture_steps",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    trialAccountId: uuid("trial_account_id").references(() => trialAccounts.id).notNull(),
+    step: integer("step").notNull(),
+    status: varchar("status", { length: 20 }).notNull(),
+    reason: varchar("reason", { length: 64 }),
+    sesMessageId: varchar("ses_message_id", { length: 255 }),
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (t) => ({ uniq: uniqueIndex("trial_nurture_steps_uniq").on(t.trialAccountId, t.step) })
+);
+
+/** Dedupe of inbound SessionCloud events. */
+export const processedEvents = pgTable("processed_events", {
+  eventId: varchar("event_id", { length: 128 }).primaryKey(),
+  receivedAt: timestamp("received_at").defaultNow(),
+});
