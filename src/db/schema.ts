@@ -9,6 +9,10 @@ import {
   jsonb,
   index,
 } from "drizzle-orm/pg-core";
+import { accounts } from "./accounts";
+
+export { accounts } from "./accounts";
+export { opportunities } from "./opportunities";
 
 // ─── Contacts ───────────────────────────────────────────────────────
 
@@ -31,11 +35,13 @@ export const contacts = pgTable(
     createdAt: timestamp("created_at").defaultNow(),
     updatedAt: timestamp("updated_at").defaultNow(),
     originalCreatedAt: timestamp("original_created_at"), // from cloud.sessiontalk.co.uk
+    accountId: uuid("account_id").references(() => accounts.id), // CRM 360 — nullable link to accounts
   },
   (t) => ({
     emailIdx: index("contacts_email_idx").on(t.email),
     countryIdx: index("contacts_country_idx").on(t.country),
     sourceIdx: index("contacts_source_idx").on(t.source),
+    accountIdx: index("contacts_account_id_idx").on(t.accountId),
   })
 );
 
@@ -149,3 +155,26 @@ export const unsubscribeTokens = pgTable("unsubscribe_tokens", {
     .notNull(),
   createdAt: timestamp("created_at").defaultNow(),
 });
+
+// Activities (CRM 360 activity log)
+
+
+export const activities = pgTable(
+  "activities",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    contactId: uuid("contact_id")
+      .references(() => contacts.id)
+      .notNull(),
+    type: varchar("type", { length: 50 }).notNull(), // note | call | email | meeting | task | other
+    subject: varchar("subject", { length: 500 }),
+    body: text("body"),
+    performedBy: varchar("performed_by", { length: 255 }),
+    performedAt: timestamp("performed_at").defaultNow(),
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (t) => ({
+    contactIdx: index("activities_contact_idx").on(t.contactId),
+    performedAtIdx: index("activities_performed_at_idx").on(t.performedAt),
+  })
+);

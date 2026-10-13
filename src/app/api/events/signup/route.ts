@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { contacts, sequences, sequenceEnrollments } from "@/db/schema";
 import { verifyWebhookSignature } from "@/lib/auth";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 export async function POST(req: NextRequest) {
   const rawBody = await req.text();
@@ -70,8 +70,7 @@ export async function POST(req: NextRequest) {
   const signupSequences = await db
     .select()
     .from(sequences)
-    .where(eq(sequences.triggerEvent, "signup"))
-    .where(eq(sequences.active, true));
+    .where(and(eq(sequences.triggerEvent, "signup"), eq(sequences.active, true)));
 
   const enrollments = [];
   for (const sequence of signupSequences) {

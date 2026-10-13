@@ -1,0 +1,1 @@
+{"Changes":[{"Action":"DELETE","ResourceRecordSet":{"Name":"marketing.sessiontalk.co.uk","Type":"A","TTL":300,"ResourceRecords":[{"Value":"76.76.21.21"}]}}]}
