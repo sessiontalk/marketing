@@ -8,14 +8,18 @@ export const FORBIDDEN_CLOUD_PATH_RE =
 export const FORBIDDEN_NON_SIP_WORKSPACE_RE =
   /https?:\/\/[a-z0-9-]+\.(uk|us|asia)\.sessiontalk\.io(?!\.sip\.)/i;
 
-/** Europe-region tenants: {slug}.eu[.sip].sessiontalk.io -> portal host {slug}.eu.sessiontalk.io (never .uk). */
-export const EU_SIP_DOMAIN_RE = /^([a-z0-9](?:[a-z0-9-]*[a-z0-9])?)\.eu(?:\.sip)?\.sessiontalk\.io$/i;
+/**
+ * Europe-region tenants (region_key "europe") are stored as {slug}.uk.sip.sessiontalk.io.
+ * UK TLS is broken, so their workspace links use {slug}.eu.sessiontalk.io (never .uk).
+ * {slug}.eu[.sip].sessiontalk.io maps the same way. us/asia are unchanged.
+ */
+export const EU_SIP_DOMAIN_RE = /^([a-z0-9](?:[a-z0-9-]*[a-z0-9])?)\.(?:uk\.sip|eu(?:\.sip)?)\.sessiontalk\.io$/i;
 
 export function isEuSipDomain(sipDomain: string | null | undefined): boolean {
   return EU_SIP_DOMAIN_RE.test((sipDomain || "").trim());
 }
 
-/** Host used in workspace links. EU -> {slug}.eu.sessiontalk.io; everything else unchanged (sip_domain as-is). */
+/** Host used in workspace links. Europe (uk.sip / eu) -> {slug}.eu.sessiontalk.io; us/asia unchanged (sip_domain as-is). */
 export function workspaceHost(sipDomain: string): string {
   const s = sipDomain.trim();
   const m = EU_SIP_DOMAIN_RE.exec(s);

@@ -5,6 +5,29 @@
  */
 export const EXCLUDED_WORKSPACES: readonly string[] = ["voxios", "maryamapp"];
 
+/**
+ * Contacts never auto-sent (SessionCloud/HoD 14 Oct: 12 Oct email-01 recipients, internal, manual holds).
+ * Lowercase. The admin test-send route is not subject to this list.
+ */
+export const EXCLUDED_EMAILS: ReadonlySet<string> = new Set([
+  "abdulazeez@servy.ae",
+  "mustaqim.agt@gmail.com",
+  "choudharytayyab302@gmail.com",
+  "lambaonam2509@gmail.com",
+  "v13256756@gmail.com",
+  "manan@superproducer.ai",
+  "beforejeryy@gmail.com",
+  "henhenbak2000@gmail.com",
+  "naumansulaiman@googlemail.com",
+  "nauman@sessiontalk.co.uk",
+  "voxiotelecom@outlook.com",
+  "rtownsend9999@gmail.com",
+]);
+
+export function isExcludedEmail(email: string | null | undefined): boolean {
+  return EXCLUDED_EMAILS.has((email || "").trim().toLowerCase());
+}
+
 export function isExcludedWorkspace(
   t: { sipDomain?: string | null; accountName?: string | null; appId?: string | null },
   list: readonly string[] = EXCLUDED_WORKSPACES

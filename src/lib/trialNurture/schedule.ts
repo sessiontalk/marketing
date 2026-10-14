@@ -64,6 +64,7 @@ export function skipReason(step: Step, s: TrialState, now: Date): string | null 
 
 /** Returns the single next action for this trial (worker calls repeatedly). */
 export function decide(s: TrialState, now: Date): Decision {
+  if (s.product !== "teams_phone" && s.product !== "teams_business") return { action: "stop", reason: "not_teams" };
   if (s.unsubscribed) return { action: "stop", reason: "unsubscribed" };
   if (s.planStatus === "paid") return { action: "stop", reason: "converted" };
   if (s.planStatus === "cancelled") return { action: "stop", reason: "cancelled" };

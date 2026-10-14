@@ -4,7 +4,7 @@ import { workspaceHost, workspaceTeamUrl, workspaceRoutingUrl, assertSafeNurture
 import { render } from "../src/lib/trialNurture/schedule";
 import { NURTURE_COPY } from "../src/lib/trialNurture/copy";
 import { TrialEvent } from "../src/lib/trialNurture/events";
-import { isExcludedWorkspace } from "../src/lib/trialNurture/exclusions";
+import { isExcludedWorkspace, isExcludedEmail } from "../src/lib/trialNurture/exclusions";
 
 test("EU sip_domain maps to {slug}.eu.sessiontalk.io (with or without .sip)", () => {
   assert.equal(workspaceHost("acme.eu.sip.sessiontalk.io"), "acme.eu.sessiontalk.io");
@@ -14,11 +14,13 @@ test("EU sip_domain maps to {slug}.eu.sessiontalk.io (with or without .sip)", ()
 });
 
 test("non-EU sip_domain unchanged", () => {
-  for (const s of ["utilitystar.us.sip.sessiontalk.io", "acme.uk.sip.sessiontalk.io", "x.asia.sip.sessiontalk.io"]) {
+  for (const s of ["utilitystar.us.sip.sessiontalk.io", "x.asia.sip.sessiontalk.io"]) {
     assert.equal(workspaceHost(s), s);
     assert.equal(workspaceTeamUrl(s), `https://${s}/admin/team`);
   }
-  assert.equal(isEuSipDomain("acme.uk.sip.sessiontalk.io"), false);
+  assert.equal(isEuSipDomain("acme.us.sip.sessiontalk.io"), false);
+  assert.equal(isEuSipDomain("acme.uk.sip.sessiontalk.io"), true);
+  assert.equal(workspaceTeamUrl("bcrsa2026.uk.sip.sessiontalk.io"), "https://bcrsa2026.eu.sessiontalk.io/admin/team");
 });
 
 test("rendered EU emails use .eu host and never .uk", () => {
@@ -33,7 +35,8 @@ test("rendered EU emails use .eu host and never .uk", () => {
 
 test("guard: EU tenant text containing a .uk link throws", () => {
   assert.throws(() => assertSafeNurtureText("https://acme.uk.sip.sessiontalk.io/admin/team", "acme.eu.sessiontalk.io"));
-  assert.doesNotThrow(() => assertSafeNurtureText("https://acme.uk.sip.sessiontalk.io/admin/team", "acme.uk.sip.sessiontalk.io"));
+  assert.throws(() => assertSafeNurtureText("https://acme.uk.sip.sessiontalk.io/admin/team", "acme.uk.sip.sessiontalk.io"));
+  assert.doesNotThrow(() => assertSafeNurtureText("https://acme.us.sip.sessiontalk.io/admin/team", "acme.us.sip.sessiontalk.io"));
 });
 
 test("trial event schema accepts EU sip_domain, still rejects junk", () => {
@@ -51,4 +54,13 @@ test("VOXIOs and MaryamApp workspaces are excluded (slug, accountName or appId)"
   assert.equal(isExcludedWorkspace({ appId: "VOXIOS" }), true);
   assert.equal(isExcludedWorkspace({ sipDomain: "acme.eu.sessiontalk.io", accountName: "acme", appId: "a1" }), false);
   assert.equal(isExcludedWorkspace({}), false);
+  assert.equal(isExcludedWorkspace({ sipDomain: "maryamapp.uk.sip.sessiontalk.io" }), true);
+});
+
+test("email exclusion list (case/space-insensitive); BCRSA2026 contact not excluded", () => {
+  assert.equal(isExcludedEmail(" Manan@SuperProducer.ai "), true);
+  assert.equal(isExcludedEmail("rtownsend9999@gmail.com"), true);
+  assert.equal(isExcludedEmail("voxiotelecom@outlook.com"), true);
+  assert.equal(isExcludedEmail("lynettefarrow84@gmail.com"), false);
+  assert.equal(isExcludedEmail(null), false);
 });
