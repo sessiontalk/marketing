@@ -8,7 +8,7 @@ import { decide, render, Step } from "@/lib/trialNurture/schedule";
 import { NURTURE_COPY } from "@/lib/trialNurture/copy";
 import { missingLinkFields, assertSafeNurtureText } from "@/lib/trialNurture/links";
 import { trialNurtureBccAddress } from "@/lib/trialNurture/bcc";
-import { isExcludedWorkspace, isExcludedEmail } from "@/lib/trialNurture/exclusions";
+import { isExcludedWorkspace, isExcludedEmail, isStep5ManualWorkspace } from "@/lib/trialNurture/exclusions";
 import { sendEmail, NURTURE_FROM_EMAIL, NURTURE_REPLY_TO } from "@/lib/email";
 
 const BATCH = 50;
@@ -31,9 +31,13 @@ async function run(req: NextRequest) {
       console.log(JSON.stringify({ level: "info", msg: "trial_nurture_hold_excluded", trialAccountId: t.id }));
       held++; continue;
     }
-    const done = await db.select({ step: trialNurtureSteps.step }).from(trialNurtureSteps).where(eq(trialNurtureSteps.trialAccountId, t.id));
-    const d = decide({ ...t, product: t.product as any, planStatus: t.planStatus as any, unsubscribed: !!c.unsubscribed, sentSteps: done.map((r) => r.step as Step) }, now);
+    const done = await db.select({ step: trialNurtureSteps.step, status: trialNurtureSteps.status, createdAt: trialNurtureSteps.createdAt }).from(trialNurtureSteps).where(eq(trialNurtureSteps.trialAccountId, t.id));
+    const sentTimes = done.filter((r) => r.status === "sent" || r.status === "sending").map((r) => (r.createdAt ? new Date(r.createdAt).getTime() : 0));
+    const lastSentAt = sentTimes.length ? new Date(Math.max(...sentTimes)) : null;
+    let d = decide({ ...t, product: t.product as any, planStatus: t.planStatus as any, unsubscribed: !!c.unsubscribed, sentSteps: done.map((r) => r.step as Step), lastSentAt }, now);
     if (d.action === "wait" || d.action === "stop") continue;
+    // Sales sends email 05 manually for these tenants: record step 5 as skipped, never send it.
+    if (d.action === "send" && d.step === 5 && isStep5ManualWorkspace(t)) d = { step: 5, action: "skip", reason: "manual_sales" };
     const copy = NURTURE_COPY.find((x) => x.step === d.step)!;
     if (d.action === "send" && !copy.final) continue; // copy not final: hold, don't skip
     // Hold (don't send a broken link) when sip_domain / accountName needed by this step is missing.

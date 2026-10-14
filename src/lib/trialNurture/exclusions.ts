@@ -6,18 +6,11 @@
 export const EXCLUDED_WORKSPACES: readonly string[] = ["voxios", "maryamapp"];
 
 /**
- * Contacts never auto-sent (SessionCloud/HoD 14 Oct: 12 Oct email-01 recipients, internal, manual holds).
- * Lowercase. The admin test-send route is not subject to this list.
+ * Contacts never auto-sent (internal + manual holds). Lowercase.
+ * The 12 Oct email-01 recipients were removed 14 Oct (Nauman): they continue from email 02.
+ * The admin test-send route is not subject to this list.
  */
 export const EXCLUDED_EMAILS: ReadonlySet<string> = new Set([
-  "abdulazeez@servy.ae",
-  "mustaqim.agt@gmail.com",
-  "choudharytayyab302@gmail.com",
-  "lambaonam2509@gmail.com",
-  "v13256756@gmail.com",
-  "manan@superproducer.ai",
-  "beforejeryy@gmail.com",
-  "henhenbak2000@gmail.com",
   "naumansulaiman@googlemail.com",
   "nauman@sessiontalk.co.uk",
   "voxiotelecom@outlook.com",
@@ -36,4 +29,15 @@ export function isExcludedWorkspace(
   const slug = (t.sipDomain || "").trim().split(".")[0].toLowerCase();
   return [slug, (t.accountName || "").trim().toLowerCase(), (t.appId || "").trim().toLowerCase()]
     .some((v) => v !== "" && ids.has(v));
+}
+/**
+ * Email 05 (trial ends in 2 days) is sent manually by Sales 17-19 Oct for these tenants.
+ * Only step 5 is skipped; steps 1-4 run normally. Matched on sip slug, accountName or appId.
+ */
+export const STEP5_MANUAL_WORKSPACES: readonly string[] = ["servyteam", "asimhussain", "zainmobile00"];
+
+export function isStep5ManualWorkspace(
+  t: { sipDomain?: string | null; accountName?: string | null; appId?: string | null }
+): boolean {
+  return isExcludedWorkspace(t, STEP5_MANUAL_WORKSPACES);
 }
