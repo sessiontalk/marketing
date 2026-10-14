@@ -1,3 +1,4 @@
+import { workspaceHost } from "./links";
 /**
  * SessionPBX (Teams Phone / Teams Business) trial nurture — activity-triggered.
  * Pure decision logic, no I/O, so it is unit-testable. Skip rules are re-checked at send time.
@@ -63,6 +64,7 @@ export function skipReason(step: Step, s: TrialState, now: Date): string | null 
 
 /** Returns the single next action for this trial (worker calls repeatedly). */
 export function decide(s: TrialState, now: Date): Decision {
+  if (s.product !== "teams_phone" && s.product !== "teams_business") return { action: "stop", reason: "not_teams" };
   if (s.unsubscribed) return { action: "stop", reason: "unsubscribed" };
   if (s.planStatus === "paid") return { action: "stop", reason: "converted" };
   if (s.planStatus === "cancelled") return { action: "stop", reason: "cancelled" };
@@ -95,7 +97,7 @@ export function render(body: string, firstName: string | null | undefined, field
     ? body.replace(/\{first_name\}/g, name)
     : body.replace(/Hi \{first_name\},/g, "Hi there,").replace(/\{first_name\}/g, "there");
   const sip = (fields.sipDomain || "").trim();
-  if (sip) out = out.replace(/\{sip_domain\}/g, sip);
+  if (sip) out = out.replace(/\{sip_domain\}/g, workspaceHost(sip));
   const acct = (fields.accountName || "").trim();
   if (acct) out = out.replace(/\{accountName\}/g, encodeURIComponent(acct));
   return out;

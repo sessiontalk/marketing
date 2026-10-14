@@ -3,6 +3,7 @@ import { desc, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { sequences, sequenceSteps, sequenceEnrollments } from "@/db/schema";
 import { isDripSendingEnabled } from "@/lib/killSwitch";
+import TestSequenceForm from "./test-sequence-form";
 
 export const dynamic = "force-dynamic";
 
@@ -35,6 +36,12 @@ export default async function SequencesPage() {
       <p className="mb-6 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
         Read-only view. Email sending is {dripOn ? "ENABLED" : "disabled"} (DRIP_SENDING_ENABLED). Nothing on this page sends email.
       </p>
+      <section className="mb-10 rounded-lg border bg-white p-6">
+        <h2 className="text-lg font-semibold mb-2">Send test sequence</h2>
+        <p className="mb-4 text-sm text-gray-500">Sends all 5 SessionPBX trial emails (approved copy, from Maryam) for a sample tenant to one address. Does not create trials or touch any trial records, and works with sending disabled.</p>
+        <TestSequenceForm />
+      </section>
+
       <section className="rounded-lg border bg-white overflow-hidden">
         <div className="px-6 py-4 border-b flex items-center justify-between">
           <h2 className="text-lg font-semibold">All sequences</h2>

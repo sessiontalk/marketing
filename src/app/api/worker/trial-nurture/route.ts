@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { contacts, trialAccounts, trialNurtureSteps } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
+import { TEAMS_PRODUCTS } from "@/lib/trialNurture/testSequence";
 import { isDripSendingEnabled } from "@/lib/killSwitch";
 import { decide, render, Step } from "@/lib/trialNurture/schedule";
 import { NURTURE_COPY } from "@/lib/trialNurture/copy";
 import { missingLinkFields, assertSafeNurtureText } from "@/lib/trialNurture/links";
 import { trialNurtureBccAddress } from "@/lib/trialNurture/bcc";
+import { isExcludedWorkspace, isExcludedEmail } from "@/lib/trialNurture/exclusions";
 import { sendEmail, NURTURE_FROM_EMAIL, NURTURE_REPLY_TO } from "@/lib/email";
 
 const BATCH = 50;
@@ -20,10 +22,15 @@ async function run(req: NextRequest) {
   const now = new Date();
   const rows = await db.select({ t: trialAccounts, c: contacts }).from(trialAccounts)
     .innerJoin(contacts, eq(trialAccounts.contactId, contacts.id))
-    .where(eq(trialAccounts.planStatus, "trial")).limit(BATCH);
+    .where(and(eq(trialAccounts.planStatus, "trial"), inArray(trialAccounts.product, [...TEAMS_PRODUCTS]))).limit(BATCH);
   let sent = 0, skipped = 0, failed = 0, held = 0;
 
   for (const { t, c } of rows) {
+    // Excluded workspaces / contacts: never auto-send, never claim a step (no DB write).
+    if (isExcludedWorkspace(t) || isExcludedEmail(c.email)) {
+      console.log(JSON.stringify({ level: "info", msg: "trial_nurture_hold_excluded", trialAccountId: t.id }));
+      held++; continue;
+    }
     const done = await db.select({ step: trialNurtureSteps.step }).from(trialNurtureSteps).where(eq(trialNurtureSteps.trialAccountId, t.id));
     const d = decide({ ...t, product: t.product as any, planStatus: t.planStatus as any, unsubscribed: !!c.unsubscribed, sentSteps: done.map((r) => r.step as Step) }, now);
     if (d.action === "wait" || d.action === "stop") continue;
@@ -48,7 +55,7 @@ async function run(req: NextRequest) {
     if (!claimed.length || d.action === "skip") { skipped++; continue; }
     try {
       const text = render(copy.body, c.firstname, { accountName: t.accountName, sipDomain: t.sipDomain });
-      assertSafeNurtureText(text);
+      assertSafeNurtureText(text, t.sipDomain);
       // bccInternal was set at enrolment and must not be recomputed here.
       const bcc = t.bccInternal ? [trialNurtureBccAddress()] : undefined;
       const r = await sendEmail({ to: c.email, subject: copy.subject, text,
