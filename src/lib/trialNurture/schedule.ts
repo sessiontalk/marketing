@@ -23,6 +23,8 @@ export interface TrialState {
   planStatus: "trial" | "paid" | "cancelled";
   unsubscribed: boolean;
   sentSteps: Step[];              // steps already sent OR skipped (terminal per step)
+  /** When the last nurture email actually went out (sent/sending). At most one email per trial per 24h. */
+  lastSentAt?: Date | null;
 }
 
 export type Decision =
@@ -79,7 +81,12 @@ export function decide(s: TrialState, now: Date): Decision {
     if (at.getTime() < s.enrolledAt.getTime() - D) return { step, action: "skip", reason: "before_enrolment" };
     if (at > now) { if (!next || at < next) next = at; continue; }
     const why = skipReason(step, s, now);
-    return why ? { step, action: "skip", reason: why } : { step, action: "send" };
+    if (why) return { step, action: "skip", reason: why };
+    // Max one email per trial per day, no catch-up blast: overdue steps wait >=24h after the last send.
+    if (s.lastSentAt && now.getTime() - s.lastSentAt.getTime() < D) {
+      return { action: "wait", nextAt: new Date(s.lastSentAt.getTime() + D) };
+    }
+    return { step, action: "send" };
   }
   return { action: "wait", nextAt: next };
 }

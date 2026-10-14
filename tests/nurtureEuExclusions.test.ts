@@ -58,7 +58,7 @@ test("VOXIOs and MaryamApp workspaces are excluded (slug, accountName or appId)"
 });
 
 test("email exclusion list (case/space-insensitive); BCRSA2026 contact not excluded", () => {
-  assert.equal(isExcludedEmail(" Manan@SuperProducer.ai "), true);
+  assert.equal(isExcludedEmail(" Nauman@SessionTalk.co.uk "), true);
   assert.equal(isExcludedEmail("rtownsend9999@gmail.com"), true);
   assert.equal(isExcludedEmail("voxiotelecom@outlook.com"), true);
   assert.equal(isExcludedEmail("lynettefarrow84@gmail.com"), false);
