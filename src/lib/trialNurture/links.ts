@@ -8,12 +8,26 @@ export const FORBIDDEN_CLOUD_PATH_RE =
 export const FORBIDDEN_NON_SIP_WORKSPACE_RE =
   /https?:\/\/[a-z0-9-]+\.(uk|us|asia)\.sessiontalk\.io(?!\.sip\.)/i;
 
+/** Europe-region tenants: {slug}.eu[.sip].sessiontalk.io -> portal host {slug}.eu.sessiontalk.io (never .uk). */
+export const EU_SIP_DOMAIN_RE = /^([a-z0-9](?:[a-z0-9-]*[a-z0-9])?)\.eu(?:\.sip)?\.sessiontalk\.io$/i;
+
+export function isEuSipDomain(sipDomain: string | null | undefined): boolean {
+  return EU_SIP_DOMAIN_RE.test((sipDomain || "").trim());
+}
+
+/** Host used in workspace links. EU -> {slug}.eu.sessiontalk.io; everything else unchanged (sip_domain as-is). */
+export function workspaceHost(sipDomain: string): string {
+  const s = sipDomain.trim();
+  const m = EU_SIP_DOMAIN_RE.exec(s);
+  return m ? `${m[1].toLowerCase()}.eu.sessiontalk.io` : s;
+}
+
 export function workspaceTeamUrl(sipDomain: string): string {
-  return `https://${sipDomain}/admin/team`;
+  return `https://${workspaceHost(sipDomain)}/admin/team`;
 }
 
 export function workspaceRoutingUrl(sipDomain: string): string {
-  return `https://${sipDomain}/admin/routing`;
+  return `https://${workspaceHost(sipDomain)}/admin/routing`;
 }
 
 export function billingUrl(accountName: string): string {
@@ -46,7 +60,10 @@ export function missingLinkFields(
   return missing;
 }
 
-export function assertSafeNurtureText(text: string): void {
+export function assertSafeNurtureText(text: string, sipDomain?: string | null): void {
+  if (isEuSipDomain(sipDomain) && /\.uk\.(sip\.)?sessiontalk\.io/i.test(text)) {
+    throw new Error("EU tenant email contains a .uk workspace link");
+  }
   if (FORBIDDEN_CLOUD_PATH_RE.test(text)) {
     throw new Error("forbidden cloud.sessiontalk.io/team-members or /call-routing link");
   }

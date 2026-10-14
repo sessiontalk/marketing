@@ -1,3 +1,4 @@
+import { workspaceHost } from "./links";
 /**
  * SessionPBX (Teams Phone / Teams Business) trial nurture — activity-triggered.
  * Pure decision logic, no I/O, so it is unit-testable. Skip rules are re-checked at send time.
@@ -95,7 +96,7 @@ export function render(body: string, firstName: string | null | undefined, field
     ? body.replace(/\{first_name\}/g, name)
     : body.replace(/Hi \{first_name\},/g, "Hi there,").replace(/\{first_name\}/g, "there");
   const sip = (fields.sipDomain || "").trim();
-  if (sip) out = out.replace(/\{sip_domain\}/g, sip);
+  if (sip) out = out.replace(/\{sip_domain\}/g, workspaceHost(sip));
   const acct = (fields.accountName || "").trim();
   if (acct) out = out.replace(/\{accountName\}/g, encodeURIComponent(acct));
   return out;
