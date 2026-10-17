@@ -38,7 +38,7 @@ export default async function SequencesPage() {
       </p>
       <section className="mb-10 rounded-lg border bg-white p-6">
         <h2 className="text-lg font-semibold mb-2">Send test sequence</h2>
-        <p className="mb-4 text-sm text-gray-500">Sends all 5 SessionPBX trial emails (approved copy, from Maryam) for a sample tenant to one address. Does not create trials or touch any trial records, and works with sending disabled.</p>
+        <p className="mb-4 text-sm text-gray-500">Sends the selected SessionPBX trial emails (approved copy, from Maryam, with production List-Unsubscribe headers) for a sample tenant to up to 10 addresses. No BCC. Does not create trials or touch any database records, and works with sending disabled.</p>
         <TestSequenceForm />
       </section>
 
