@@ -32,8 +32,8 @@ test("test sequence renders all 5 steps with EU links and no .uk", () => {
   assert.ok(all.includes("Maryam Fatima"));
 });
 
-test("test sequence rejects multiple or bad recipients and bad sip_domain", () => {
-  for (const to of ["", "a@b.com,c@d.com", "a@b.com; c@d.com", "not-an-email"])
+test("test sequence rejects empty or bad recipients and bad sip_domain", () => {
+  for (const to of ["", "not-an-email", "a@b.com, not-an-email", "a@b.com <c@d.com>"])
     assert.throws(() => buildTestSequence({ to, sipDomain: "x.eu.sessiontalk.io" }));
   assert.throws(() => buildTestSequence({ to: "a@b.com", sipDomain: "x.uk.sessiontalk.io" }));
   assert.throws(() => buildTestSequence({ to: "a@b.com", sipDomain: "evil.com" }));

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
-import { contacts, trialAccounts, trialNurtureSteps } from "@/db/schema";
+import { contacts, trialAccounts, trialNurtureSteps, unsubscribeTokens } from "@/db/schema";
 import { and, eq, inArray } from "drizzle-orm";
 import { TEAMS_PRODUCTS } from "@/lib/trialNurture/testSequence";
 import { isDripSendingEnabled } from "@/lib/killSwitch";
@@ -10,6 +10,8 @@ import { missingLinkFields, assertSafeNurtureText } from "@/lib/trialNurture/lin
 import { trialNurtureBccAddress } from "@/lib/trialNurture/bcc";
 import { isExcludedWorkspace, isExcludedEmail, isStep5ManualWorkspace } from "@/lib/trialNurture/exclusions";
 import { sendEmail, NURTURE_FROM_EMAIL, NURTURE_REPLY_TO } from "@/lib/email";
+import { generateUnsubscribeToken } from "@/lib/tokens";
+import { listUnsubscribeHeaders, publicUnsubscribeUrl } from "@/lib/unsubscribe";
 
 const BATCH = 50;
 
@@ -62,8 +64,12 @@ async function run(req: NextRequest) {
       assertSafeNurtureText(text, t.sipDomain);
       // bccInternal was set at enrolment and must not be recomputed here.
       const bcc = t.bccInternal ? [trialNurtureBccAddress()] : undefined;
+      // One unsubscribe token per send (same as the sequences worker), used for List-Unsubscribe (RFC 8058 one-click).
+      const unsubToken = generateUnsubscribeToken();
+      await db.insert(unsubscribeTokens).values({ token: unsubToken, contactId: c.id });
+      const headers = listUnsubscribeHeaders(publicUnsubscribeUrl(unsubToken), NURTURE_REPLY_TO);
       const r = await sendEmail({ to: c.email, subject: copy.subject, text,
-        from: NURTURE_FROM_EMAIL, replyTo: NURTURE_REPLY_TO, bcc,
+        from: NURTURE_FROM_EMAIL, replyTo: NURTURE_REPLY_TO, bcc, headers,
         tags: { nurture: "sessionpbx_trial", step: String(d.step) } });
       await db.update(trialNurtureSteps).set({ status: "sent", sesMessageId: r.id }).where(eq(trialNurtureSteps.id, claimed[0].id));
       sent++;

@@ -1,17 +1,24 @@
-import { SESv2Client, SendEmailCommand } from "@aws-sdk/client-sesv2";
+import { SESv2Client, SendEmailCommand, type SendEmailCommandInput } from "@aws-sdk/client-sesv2";
 
-const sesClient = new SESv2Client({
-  region: process.env.AWS_SES_REGION || "eu-west-2",
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
-  },
-});
+// Lazy: created on first send, so importing this module (tests, build) needs no AWS env.
+let _ses: SESv2Client | undefined;
+function sesClient(): SESv2Client {
+  if (!_ses) {
+    _ses = new SESv2Client({
+      region: process.env.AWS_SES_REGION || "eu-west-2",
+      credentials: {
+        accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
+        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
+      },
+    });
+  }
+  return _ses;
+}
 
 export const FROM_EMAIL = "SessionTalk <hello@sessiontalk.co.uk>";
 export const REPLY_TO = "support@sessiontalk.co.uk";
 
-interface SendEmailParams {
+export interface SendEmailParams {
   to: string;
   subject: string;
   html?: string; // omit for plain-text-only mail
@@ -21,13 +28,16 @@ interface SendEmailParams {
   from?: string;
   replyTo?: string;
   bcc?: string[];
+  /** Extra message headers, e.g. listUnsubscribeHeaders(). Sent via Content.Simple.Headers. */
+  headers?: Record<string, string>;
 }
 
 // Trial nurture sender: Maryam personally. Never sales@ or chief@.
 export const NURTURE_FROM_EMAIL = "Maryam Fatima <maryam@sessiontalk.co.uk>";
 export const NURTURE_REPLY_TO = "maryam@sessiontalk.co.uk";
 
-export async function sendEmail({
+/** Build the SESv2 SendEmail input. Pure (no network) so header handling is unit-testable. */
+export function buildSendEmailInput({
   to,
   subject,
   html,
@@ -37,8 +47,17 @@ export async function sendEmail({
   from,
   replyTo,
   bcc,
-}: SendEmailParams) {
-  const command = new SendEmailCommand({
+  headers,
+}: SendEmailParams): SendEmailCommandInput {
+  const headerList = Object.entries(headers || {}).map(([Name, Value]) => {
+    if (!/^[A-Za-z0-9-]+$/.test(Name)) throw new Error(`invalid header name: ${Name}`);
+    if (/[\r\n]/.test(Value)) throw new Error(`invalid header value for ${Name}`);
+    return { Name, Value };
+  });
+  // ListManagementOptions makes SES add its own List-Unsubscribe headers; never send both.
+  if (unsubscribeUrl && headerList.some((h) => /^list-unsubscribe(-post)?$/i.test(h.Name)))
+    throw new Error("pass either unsubscribeUrl (SES list management) or List-Unsubscribe headers, not both");
+  return {
     FromEmailAddress: from || FROM_EMAIL,
     ReplyToAddresses: [replyTo || REPLY_TO],
     Destination: {
@@ -52,6 +71,7 @@ export async function sendEmail({
           ...(html ? { Html: { Data: html } } : {}),
           ...(text ? { Text: { Data: text } } : {}),
         },
+        ...(headerList.length ? { Headers: headerList } : {}),
       },
     },
     ...(unsubscribeUrl
@@ -65,8 +85,10 @@ export async function sendEmail({
     EmailTags: tags
       ? Object.entries(tags).map(([Name, Value]) => ({ Name, Value }))
       : undefined,
-  });
+  };
+}
 
-  const result = await sesClient.send(command);
+export async function sendEmail(params: SendEmailParams) {
+  const result = await sesClient().send(new SendEmailCommand(buildSendEmailInput(params)));
   return { id: result.MessageId };
 }
