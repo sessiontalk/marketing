@@ -8,7 +8,7 @@ const sesClient = new SESv2Client({
   },
 });
 
-export const FROM_EMAIL = "SessionTalk <hello@sessiontalk.co.uk>";
+export const FROM_EMAIL = "SessionTalk <support@sessiontalk.co.uk>";
 export const REPLY_TO = "support@sessiontalk.co.uk";
 
 interface SendEmailParams {
