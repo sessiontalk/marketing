@@ -1,5 +1,5 @@
 /**
- * Newsletter issue #1 SEED send: exactly ONE copy of A and ONE copy of B to nauman@sessiontalk.co.uk.
+ * Newsletter issue #1 SEED send: exactly ONE copy of A and ONE copy of B to naumansulaiman@googlemail.com.
  *
  * Templates (approved copy) are NOT committed (this repo is public). Copy them next to this file first:
  *   cp /workspace/newsletter/issue-01/seed-send/issue-01-{A-signups,B-winback}.template.{html,txt} scripts/newsletter-issue01/
@@ -22,7 +22,7 @@ import { publicBaseUrl } from "../../src/lib/unsubscribe";
 import { normalizeEmail } from "../../src/lib/suppression";
 import { generateUnsubscribeToken } from "../../src/lib/tokens";
 
-export const SEED_TO = "nauman@sessiontalk.co.uk"; // hard-coded; no other recipient is possible
+export const SEED_TO = "naumansulaiman@googlemail.com"; // hard-coded; no other recipient is possible
 const IMG_BASE = "https://sessiontalk.io/img/newsletter/2026-10/";
 const IMAGES = ["sessiontalk-logo.png", "hero-dark-sessioncloud-play.png", "light-vs-dark-appstore.png"];
 const DIR = __dirname;
@@ -96,7 +96,7 @@ async function main() {
   const { dbSuppressionStore } = await import("../../src/lib/suppressionDb");
   const { assertSendable } = await import("../../src/lib/suppression");
 
-  await assertSendable(SEED_TO, dbSuppressionStore); // throws if contacts.unsubscribed for nauman@
+  await assertSendable(SEED_TO, dbSuppressionStore); // throws if contacts.unsubscribed for naumansulaiman@
   let [c] = await db.select().from(contacts).where(sql`lower(${contacts.email}) = ${normalizeEmail(SEED_TO)}`);
   if (!c) [c] = await db.insert(contacts).values({ email: SEED_TO, username: SEED_TO, firstname: "Nauman", source: "newsletter_seed" }).returning();
 

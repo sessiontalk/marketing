@@ -136,11 +136,11 @@ test("buildNewsletterMessage rejects bad tokens and templates without an unsubsc
   assert.throws(() => buildNewsletterMessage({ ...ok, token: TOKEN, text: "no link" }));
 });
 
-test("seed script: hard-coded to nauman@ only, dry run by default, sends only with --confirm-seed, no DB/SES import in dry run", () => {
+test("seed script: hard-coded to naumansulaiman@ only, dry run by default, sends only with --confirm-seed, no DB/SES import in dry run", () => {
   const src = readFileSync("scripts/newsletter-issue01/seed-newsletter-issue01.ts", "utf8");
-  assert.match(src, /export const SEED_TO = "nauman@sessiontalk\.co\.uk";/);
+  assert.match(src, /export const SEED_TO = "naumansulaiman@googlemail\.com";/);
   const addrs = new Set(src.match(/[a-z0-9._-]+@[a-z0-9.-]+\.[a-z]+/gi) || []);
-  assert.deepEqual([...addrs].sort(), ["nauman@sessiontalk.co.uk", "support@sessiontalk.co.uk"]); // support@ = From check only
+  assert.deepEqual([...addrs].sort(), ["naumansulaiman@googlemail.com", "support@sessiontalk.co.uk"]); // support@ = From check only
   assert.match(src, /const CONFIRM = args\.includes\("--confirm-seed"\);/);
   const ret = src.indexOf("if (!CONFIRM) {");
   assert.ok(ret > 0 && ret < src.indexOf('await import("../../src/db")'));
