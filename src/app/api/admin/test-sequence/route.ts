@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { COOKIE_NAME, verifySessionToken } from "@/lib/session";
 import { buildTestSend } from "@/lib/trialNurture/testSequence";
-import { sendEmail, NURTURE_FROM_EMAIL, NURTURE_REPLY_TO } from "@/lib/email";
+import { sendEmail, NURTURE_FROM_EMAIL, NURTURE_REPLY_TO, LIST_UNSUBSCRIBE_MAILTO } from "@/lib/email";
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
     plan = buildTestSend({
       to: body?.to, sipDomain: body?.sipDomain, accountName: body?.accountName, firstName: body?.firstName,
       steps: body?.steps, productionSubject: body?.productionSubject === true,
-    }, NURTURE_REPLY_TO);
+    }, LIST_UNSUBSCRIBE_MAILTO);
   } catch (e: any) {
     return NextResponse.json({ error: String(e?.message || e) }, { status: 400 });
   }

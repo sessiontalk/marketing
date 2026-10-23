@@ -3,6 +3,8 @@
  * /api/unsubscribe handler logic. Pure / store-injected so it is unit-testable without a DB.
  */
 
+import type { SuppressionStore } from "./suppression";
+
 /** Tokens are 32 random bytes as hex (see tokens.ts). Anything else is rejected before any DB access. */
 export const UNSUBSCRIBE_TOKEN_RE = /^[a-f0-9]{64}$/;
 
@@ -41,6 +43,38 @@ export interface UnsubscribeStore {
   tokenExists(token: string): Promise<boolean>;
   /** Mark the token's contact unsubscribed (and cancel enrollments). Returns false if the token is unknown. */
   unsubscribe(token: string): Promise<boolean>;
+}
+
+/**
+ * UnsubscribeStore that records the unsubscribe as a suppression (contacts.unsubscribed on every
+ * row with the token contact's lower(email), plus enrolment cancellation) via a SuppressionStore.
+ */
+export function makeUnsubscribeStore(deps: {
+  /** Email of the contact the token belongs to, or null when the token is unknown. Read-only. */
+  emailForToken(token: string): Promise<string | null>;
+  suppression: Pick<SuppressionStore, "suppress">;
+}): UnsubscribeStore {
+  return {
+    async tokenExists(token) {
+      return (await deps.emailForToken(token)) !== null;
+    },
+    async unsubscribe(token) {
+      const email = await deps.emailForToken(token);
+      if (email === null) return false;
+      await deps.suppression.suppress(email, "unsubscribe_link");
+      return true;
+    },
+  };
+}
+
+/**
+ * Token for a POST: the ?token= query (RFC 8058 one-click POSTs "List-Unsubscribe=One-Click" to the
+ * List-Unsubscribe URL, which carries the token) or else the confirm form's hidden token field.
+ */
+export function postToken(queryToken: string | null, form: { get(name: string): unknown } | null): string | null {
+  if (queryToken) return queryToken;
+  const v = form?.get("token");
+  return typeof v === "string" ? v : null;
 }
 
 export interface UnsubscribeResult { status: number; html: string }

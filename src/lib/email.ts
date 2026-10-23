@@ -36,6 +36,17 @@ export interface SendEmailParams {
 export const NURTURE_FROM_EMAIL = "Maryam Fatima <maryam@sessiontalk.co.uk>";
 export const NURTURE_REPLY_TO = "maryam@sessiontalk.co.uk";
 
+/**
+ * mailto in every List-Unsubscribe header we set. Lands in the support@ mailbox; those requests are
+ * NOT recorded automatically: support adds them with scripts/suppress-emails.ts (see README).
+ * Reply-To is separate (nurture replies still go to Maryam).
+ */
+export const LIST_UNSUBSCRIBE_MAILTO = "support@sessiontalk.co.uk";
+
+// Newsletter / broadcast sender (never hello@, never a personal address).
+export const NEWSLETTER_FROM_EMAIL = "SessionTalk <support@sessiontalk.co.uk>";
+export const NEWSLETTER_REPLY_TO = "support@sessiontalk.co.uk";
+
 /** Build the SESv2 SendEmail input. Pure (no network) so header handling is unit-testable. */
 export function buildSendEmailInput({
   to,
