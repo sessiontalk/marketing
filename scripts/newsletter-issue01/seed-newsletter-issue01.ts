@@ -1,11 +1,12 @@
 /**
- * Newsletter issue #1 SEED send: exactly ONE copy of A and ONE copy of B to naumansulaiman@googlemail.com.
+ * Newsletter issue #1 SEED send: exactly ONE copy each of A1 (customers), A2alt (signups) and B (win-back) = 3 emails,
+ * all to naumansulaiman@googlemail.com (hard-coded test inbox; no other recipient is possible).
  *
  * Templates (approved copy) are NOT committed (this repo is public). Copy them next to this file first:
- *   cp /workspace/newsletter/issue-01/seed-send/issue-01-{A-signups,B-winback}.template.{html,txt} scripts/newsletter-issue01/
+ *   cp /workspace/newsletter/issue-01/seed-send/issue-01-{A1-customers,A2alt-signups,B-winback}.template.{html,txt} scripts/newsletter-issue01/
  *
  *   npx tsx scripts/newsletter-issue01/seed-newsletter-issue01.ts                  # DRY RUN (default)
- *   npx tsx scripts/newsletter-issue01/seed-newsletter-issue01.ts --confirm-seed   # sends 2 emails
+ *   npx tsx scripts/newsletter-issue01/seed-newsletter-issue01.ts --confirm-seed   # sends 3 emails
  *   optional: --suppression-csv=/path/to/ses-suppression.csv (checked case-insensitively)
  *
  * DRY RUN touches no database, no SES and not the CRM app: it checks templates, banned terms, the
@@ -27,10 +28,11 @@ const IMG_BASE = "https://sessiontalk.io/img/newsletter/2026-10/";
 const IMAGES = ["sessiontalk-logo.png", "hero-dark-sessioncloud-play.png", "light-vs-dark-appstore.png"];
 const DIR = __dirname;
 const VERSIONS = [
-  { key: "A", file: "issue-01-A-signups", subject: "Dark mode is here, plus a few other new things" },
+  { key: "A1", file: "issue-01-A1-customers", subject: "Dark mode is here, plus a few other new things" },
+  { key: "A2alt", file: "issue-01-A2alt-signups", subject: "Dark mode is here, plus a few other new things" },
   { key: "B", file: "issue-01-B-winback", subject: "A lot has changed at SessionTalk since you left" },
 ] as const;
-const BANNED = /3CX|Yeastar|VitalPBX|Vodia|SessionPBX|private label/i;
+const BANNED = /3CX|Yeastar|VitalPBX|Vodia|SessionPBX|private label|PENDING/i;
 
 const args = process.argv.slice(2);
 const CONFIRM = args.includes("--confirm-seed");
@@ -78,15 +80,16 @@ async function preflight(): Promise<string[]> {
 
 async function main() {
   const fail = await preflight();
+  if (VERSIONS.length !== 3) fail.push("expected exactly 3 versions");
   if (fail.length) { console.error("PREFLIGHT FAILED, nothing sent:\n - " + fail.join("\n - ")); process.exit(1); }
   const templates = readTemplates();
-  // Build both messages with a dummy token to prove the headers/placeholders before any DB access.
+  // Build all 3 messages with a dummy token to prove the headers/placeholders before any DB access.
   for (const t of templates) {
     const m = buildNewsletterMessage({ to: SEED_TO, subject: t.subject, html: t.html, text: t.text, token: "0".repeat(64) });
     if (m.to !== SEED_TO || m.from !== NEWSLETTER_FROM_EMAIL || m.replyTo !== NEWSLETTER_REPLY_TO) throw new Error("bad envelope");
     if (!CONFIRM) console.log(`[dry run] would send ${t.key} "${t.subject}" from ${m.from} to ${SEED_TO}; List-Unsubscribe: ${m.headers!["List-Unsubscribe"].replace(/token=[a-f0-9]+/, "token=<per-send>")}`);
   }
-  if (!CONFIRM) { console.log("Dry run only: no DB, no SES. Re-run with --confirm-seed to send 2 emails to " + SEED_TO); return; }
+  if (!CONFIRM) { console.log("Dry run only: no DB, no SES. Re-run with --confirm-seed to send 3 emails to " + SEED_TO); return; }
 
   // Lazy imports: only the confirmed path loads the DB client and SES.
   const { db } = await import("../../src/db");
