@@ -108,7 +108,9 @@ test("every automated sender checks the suppression before sending", () => {
   const sched = readFileSync("src/lib/trialNurture/schedule.ts", "utf8");
   assert.match(sched, /if \(s\.unsubscribed\) return \{ action: "stop"/);
   const seed = readFileSync("scripts/newsletter-issue01/seed-newsletter-issue01.ts", "utf8");
-  assert.ok(seed.indexOf("assertSendable(SEED_TO") > 0 && seed.indexOf("assertSendable(SEED_TO") < seed.indexOf("await sendEmail("));
+  assert.ok(seed.indexOf("assertSendable(SEED_TO") > 0 && seed.indexOf("assertSendable(SEED_TO") < seed.indexOf("await sendNewsletterAndLog("));
+  const bulk = readFileSync("src/lib/newsletterBroadcast.ts", "utf8");
+  assert.ok(bulk.indexOf("deps.assertSendable(p.email)") > 0 && bulk.indexOf("deps.assertSendable(p.email)") < bulk.indexOf("deps.sendOne("));
 });
 
 // ─── newsletter message ─────────────────────────────────────────────
@@ -122,7 +124,7 @@ test("buildNewsletterMessage: support@ sender, per-send https one-click + mailto
   assert.equal(m.replyTo, NEWSLETTER_REPLY_TO);
   assert.equal(m.headers!["List-Unsubscribe"], `<${url}>, <mailto:support@sessiontalk.co.uk?subject=unsubscribe>`);
   assert.equal(m.headers!["List-Unsubscribe-Post"], "List-Unsubscribe=One-Click");
-  assert.equal(m.html, `<a href="${url}">u</a>`);
+  assert.equal(m.html, `<a ses:no-track href="${url}">u</a>`);
   assert.equal(m.text, `u: ${url}`);
   const input = buildSendEmailInput(m);
   assert.equal(input.FromEmailAddress, "SessionTalk <support@sessiontalk.co.uk>");

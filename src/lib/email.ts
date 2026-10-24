@@ -30,6 +30,8 @@ export interface SendEmailParams {
   bcc?: string[];
   /** Extra message headers, e.g. listUnsubscribeHeaders(). Sent via Content.Simple.Headers. */
   headers?: Record<string, string>;
+  /** SES configuration set (event publishing). Omitted from the request when unset. */
+  configurationSetName?: string;
 }
 
 // Trial nurture sender: Maryam personally. Never sales@ or chief@.
@@ -59,6 +61,7 @@ export function buildSendEmailInput({
   replyTo,
   bcc,
   headers,
+  configurationSetName,
 }: SendEmailParams): SendEmailCommandInput {
   const headerList = Object.entries(headers || {}).map(([Name, Value]) => {
     if (!/^[A-Za-z0-9-]+$/.test(Name)) throw new Error(`invalid header name: ${Name}`);
@@ -93,9 +96,10 @@ export function buildSendEmailInput({
           },
         }
       : {}),
-    EmailTags: tags
-      ? Object.entries(tags).map(([Name, Value]) => ({ Name, Value }))
-      : undefined,
+    ...(configurationSetName ? { ConfigurationSetName: configurationSetName } : {}),
+    ...(tags && Object.keys(tags).length
+      ? { EmailTags: Object.entries(tags).map(([Name, Value]) => ({ Name, Value })) }
+      : {}),
   };
 }
 
