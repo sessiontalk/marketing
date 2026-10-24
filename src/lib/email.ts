@@ -30,11 +30,24 @@ export interface SendEmailParams {
   bcc?: string[];
   /** Extra message headers, e.g. listUnsubscribeHeaders(). Sent via Content.Simple.Headers. */
   headers?: Record<string, string>;
+  /** SES configuration set (event publishing). Omitted from the request when unset. */
+  configurationSetName?: string;
 }
 
 // Trial nurture sender: Maryam personally. Never sales@ or chief@.
 export const NURTURE_FROM_EMAIL = "Maryam Fatima <maryam@sessiontalk.co.uk>";
 export const NURTURE_REPLY_TO = "maryam@sessiontalk.co.uk";
+
+/**
+ * mailto in every List-Unsubscribe header we set. Lands in the support@ mailbox; those requests are
+ * NOT recorded automatically: support adds them with scripts/suppress-emails.ts (see README).
+ * Reply-To is separate (nurture replies still go to Maryam).
+ */
+export const LIST_UNSUBSCRIBE_MAILTO = "support@sessiontalk.co.uk";
+
+// Newsletter / broadcast sender (never hello@, never a personal address).
+export const NEWSLETTER_FROM_EMAIL = "SessionTalk <support@sessiontalk.co.uk>";
+export const NEWSLETTER_REPLY_TO = "support@sessiontalk.co.uk";
 
 /** Build the SESv2 SendEmail input. Pure (no network) so header handling is unit-testable. */
 export function buildSendEmailInput({
@@ -48,6 +61,7 @@ export function buildSendEmailInput({
   replyTo,
   bcc,
   headers,
+  configurationSetName,
 }: SendEmailParams): SendEmailCommandInput {
   const headerList = Object.entries(headers || {}).map(([Name, Value]) => {
     if (!/^[A-Za-z0-9-]+$/.test(Name)) throw new Error(`invalid header name: ${Name}`);
@@ -82,9 +96,10 @@ export function buildSendEmailInput({
           },
         }
       : {}),
-    EmailTags: tags
-      ? Object.entries(tags).map(([Name, Value]) => ({ Name, Value }))
-      : undefined,
+    ...(configurationSetName ? { ConfigurationSetName: configurationSetName } : {}),
+    ...(tags && Object.keys(tags).length
+      ? { EmailTags: Object.entries(tags).map(([Name, Value]) => ({ Name, Value })) }
+      : {}),
   };
 }
 

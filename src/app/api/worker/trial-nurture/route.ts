@@ -9,7 +9,7 @@ import { NURTURE_COPY } from "@/lib/trialNurture/copy";
 import { missingLinkFields, assertSafeNurtureText } from "@/lib/trialNurture/links";
 import { trialNurtureBccAddress } from "@/lib/trialNurture/bcc";
 import { isExcludedWorkspace, isExcludedEmail, isStep5ManualWorkspace } from "@/lib/trialNurture/exclusions";
-import { sendEmail, NURTURE_FROM_EMAIL, NURTURE_REPLY_TO } from "@/lib/email";
+import { sendEmail, NURTURE_FROM_EMAIL, NURTURE_REPLY_TO, LIST_UNSUBSCRIBE_MAILTO } from "@/lib/email";
 import { generateUnsubscribeToken } from "@/lib/tokens";
 import { listUnsubscribeHeaders, publicUnsubscribeUrl } from "@/lib/unsubscribe";
 
@@ -67,7 +67,7 @@ async function run(req: NextRequest) {
       // One unsubscribe token per send (same as the sequences worker), used for List-Unsubscribe (RFC 8058 one-click).
       const unsubToken = generateUnsubscribeToken();
       await db.insert(unsubscribeTokens).values({ token: unsubToken, contactId: c.id });
-      const headers = listUnsubscribeHeaders(publicUnsubscribeUrl(unsubToken), NURTURE_REPLY_TO);
+      const headers = listUnsubscribeHeaders(publicUnsubscribeUrl(unsubToken), LIST_UNSUBSCRIBE_MAILTO);
       const r = await sendEmail({ to: c.email, subject: copy.subject, text,
         from: NURTURE_FROM_EMAIL, replyTo: NURTURE_REPLY_TO, bcc, headers,
         tags: { nurture: "sessionpbx_trial", step: String(d.step) } });

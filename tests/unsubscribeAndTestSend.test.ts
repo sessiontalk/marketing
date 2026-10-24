@@ -5,7 +5,7 @@ import {
   listUnsubscribeHeaders, publicBaseUrl, publicUnsubscribeUrl, handleUnsubscribe, isValidUnsubscribeToken,
   DEFAULT_PUBLIC_BASE_URL, type UnsubscribeStore,
 } from "../src/lib/unsubscribe";
-import { buildSendEmailInput, NURTURE_REPLY_TO } from "../src/lib/email";
+import { buildSendEmailInput, LIST_UNSUBSCRIBE_MAILTO } from "../src/lib/email";
 import { buildTestSequence, buildTestSend, parseRecipients, parseSteps, MAX_TEST_RECIPIENTS, TEST_UNSUBSCRIBE_TOKEN } from "../src/lib/trialNurture/testSequence";
 import { NURTURE_COPY } from "../src/lib/trialNurture/copy";
 import { generateUnsubscribeToken } from "../src/lib/tokens";
@@ -15,8 +15,8 @@ const TOKEN = "a".repeat(64);
 // ─── List-Unsubscribe headers ───────────────────────────────────────
 
 test("listUnsubscribeHeaders: https URL + mailto, and RFC 8058 one-click Post header", () => {
-  const h = listUnsubscribeHeaders(`https://marketing.sessiontalk.co.uk/api/unsubscribe?token=${TOKEN}`, "maryam@sessiontalk.co.uk");
-  assert.equal(h["List-Unsubscribe"], `<https://marketing.sessiontalk.co.uk/api/unsubscribe?token=${TOKEN}>, <mailto:maryam@sessiontalk.co.uk?subject=unsubscribe>`);
+  const h = listUnsubscribeHeaders(`https://marketing.sessiontalk.co.uk/api/unsubscribe?token=${TOKEN}`, LIST_UNSUBSCRIBE_MAILTO);
+  assert.equal(h["List-Unsubscribe"], `<https://marketing.sessiontalk.co.uk/api/unsubscribe?token=${TOKEN}>, <mailto:support@sessiontalk.co.uk?subject=unsubscribe>`);
   assert.equal(h["List-Unsubscribe-Post"], "List-Unsubscribe=One-Click");
   assert.throws(() => listUnsubscribeHeaders("http://x.com/u", "a@b.com"));
   assert.throws(() => listUnsubscribeHeaders("https://x.com/u\r\nBcc: a@b.com", "a@b.com"));
@@ -38,7 +38,7 @@ test("generated tokens match the format the unsubscribe handler accepts", () => 
 // ─── email.ts ───────────────────────────────────────────────────────
 
 test("buildSendEmailInput puts headers in Content.Simple.Headers and adds no SES list management", () => {
-  const headers = listUnsubscribeHeaders(publicUnsubscribeUrl(TOKEN, {}), NURTURE_REPLY_TO);
+  const headers = listUnsubscribeHeaders(publicUnsubscribeUrl(TOKEN, {}), LIST_UNSUBSCRIBE_MAILTO);
   const input = buildSendEmailInput({ to: "x@example.com", subject: "s", text: "t", headers });
   assert.deepEqual(input.Content?.Simple?.Headers, [
     { Name: "List-Unsubscribe", Value: headers["List-Unsubscribe"] },
@@ -117,7 +117,8 @@ test("nurture worker creates one unsubscribe token per send and passes List-Unsu
   const tokIdx = src.indexOf("generateUnsubscribeToken()");
   const insIdx = src.indexOf("db.insert(unsubscribeTokens)");
   assert.ok(tokIdx > 0 && insIdx > tokIdx && sendIdx > insIdx, "token generated and stored before send");
-  assert.match(src, /listUnsubscribeHeaders\(publicUnsubscribeUrl\(unsubToken\), NURTURE_REPLY_TO\)/);
+  assert.match(src, /listUnsubscribeHeaders\(publicUnsubscribeUrl\(unsubToken\), LIST_UNSUBSCRIBE_MAILTO\)/);
+  assert.match(src, /replyTo: NURTURE_REPLY_TO/); // replies still go to Maryam
   assert.match(src.slice(sendIdx, sendIdx + 300), /headers/);
   // Token insert is inside the try, after the step claim: a failure marks the step failed, never double-sends.
   assert.ok(insIdx > src.indexOf("const claimed"));
@@ -149,14 +150,14 @@ test("parseSteps: default all, subset sorted/deduped, rejects out of range", () 
 
 test("test-send email 01 only, multiple addresses, production subject toggle", () => {
   const input = { to: ["seed1@example.com", "test-abc@srv1.mail-tester.com"], sipDomain: "acme.asia.sip.sessiontalk.io", steps: [1] };
-  const t = buildTestSend(input, NURTURE_REPLY_TO);
+  const t = buildTestSend(input, LIST_UNSUBSCRIBE_MAILTO);
   assert.deepEqual(t.recipients, ["seed1@example.com", "test-abc@srv1.mail-tester.com"]);
   assert.equal(t.steps.length, 1);
   assert.equal(t.steps[0].step, 1);
   assert.equal(t.steps[0].subject, `[TEST 1/5] ${NURTURE_COPY[0].subject}`);
   assert.match(t.steps[0].text, /https:\/\/acme\.asia\.sip\.sessiontalk\.io\/admin\/team/);
   assert.equal(t.headers["List-Unsubscribe-Post"], "List-Unsubscribe=One-Click");
-  assert.match(t.headers["List-Unsubscribe"], /^<https:\/\/[^>]+\/api\/unsubscribe\?token=test-send-no-token>, <mailto:maryam@sessiontalk\.co\.uk\?subject=unsubscribe>$/);
+  assert.match(t.headers["List-Unsubscribe"], /^<https:\/\/[^>]+\/api\/unsubscribe\?token=test-send-no-token>, <mailto:support@sessiontalk\.co\.uk\?subject=unsubscribe>$/);
   const prod = buildTestSequence({ ...input, productionSubject: true });
   assert.equal(prod[0].subject, NURTURE_COPY[0].subject);
 });

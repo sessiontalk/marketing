@@ -1,0 +1,4 @@
+# Approved copy and lists stay off this public repo; copy them in at run time.
+*.template.html
+*.template.txt
+*.csv

@@ -113,3 +113,19 @@ The welcome drip sequence:
 ## Automated email kill switch
 `DRIP_SENDING_ENABLED` must equal `true` for /api/worker/sequences or /api/worker/trial-nurture to send anything. Unset/any other value = no-op. Both workers also require `CRON_SECRET` (Vercel Cron sends `Authorization: Bearer $CRON_SECRET` on a GET).
 The legacy softphone "Welcome Drip" sequence is retired in code and can never send.
+
+## Unsubscribes and suppression
+
+One flag is the marketing suppression for every sender: `contacts.unsubscribed = true` (plus `contacts.unsubscribed_at`), matched on `lower(email)`. No separate table.
+
+| How someone unsubscribes | What records it |
+|---|---|
+| Unsubscribe link in the email body (GET) | Nothing. GET only shows a confirm page; its button POSTs. |
+| Confirm button (POST, form token) | `/api/unsubscribe` sets `contacts.unsubscribed` on every row with that email and cancels active `sequence_enrollments` |
+| Mailbox one-click (RFC 8058 POST `List-Unsubscribe=One-Click`, token in the URL) | Same as above |
+| Email to the `List-Unsubscribe` mailto (support@sessiontalk.co.uk) | **Not automatic.** Support runs `npx tsx scripts/suppress-emails.ts <email...> --confirm` (dry run without `--confirm`); this creates a contact row if needed. The CRM contact PATCH (`unsubscribed: true`) also works. |
+| Legacy sequences worker (SES list management, `ContactListName=sessiontalk-contacts`) | SES's own unsubscribe link records in the SES contact list only, not in this DB. |
+
+Every send checks it first: `worker/sequences` (skips and cancels when `contact.unsubscribed`), `worker/trial-nurture` (`decide()` stops on unsubscribed), and newsletter sends (`assertSendable()` / `partitionSendable()` in `src/lib/suppression.ts`, then `buildNewsletterMessage()` in `src/lib/newsletter.ts`). The admin test-send route sends only to typed internal addresses and does not check it.
+
+All `List-Unsubscribe` headers use `<https://…/api/unsubscribe?token=…>, <mailto:support@sessiontalk.co.uk?subject=unsubscribe>` with `List-Unsubscribe-Post: List-Unsubscribe=One-Click`, and a fresh token for every send.
