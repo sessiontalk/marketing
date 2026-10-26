@@ -13,7 +13,7 @@ export const IMAGES = ["sessiontalk-logo.png", "hero-dark-sessioncloud-play.png"
 export const VERSIONS = [
   { key: "A1", file: "issue-01-A1-customers", subject: "Dark mode is here, plus a few other new things" },
   { key: "A2alt", file: "issue-01-A2alt-signups", subject: "Dark mode is here, plus a few other new things" },
-  { key: "B", file: "issue-01-B-winback", subject: "A lot has changed at SessionTalk since you left" },
+  { key: "B", file: "issue-01-B-winback", subject: "Dark mode is here, plus a few other new things" },
 ] as const;
 export type VariantKey = (typeof VERSIONS)[number]["key"];
 export const BANNED = /3CX|Yeastar|VitalPBX|Vodia|SessionPBX|private label|PENDING/i;
