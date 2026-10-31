@@ -98,3 +98,20 @@ test("plan + run: unsubscribed / suppressed / already-claimed are skipped; claim
   const again = await runBroadcast(plan.send, deps, { campaign: "survey-01", ratePerSecond: 10, maxFailureRate: 0.02 });
   assert.equal(sends, 1); assert.equal(again.skipped, 1);
 });
+
+test("surveyLink keeps existing params, appends seg/v, never t", () => {
+  const u = new URL(surveyLink("https://tally.so/r/w7Lk2Q?src=invite-s01&t=x", { seg: "paying generic" }));
+  assert.equal(u.searchParams.get("src"), "invite-s01");
+  assert.equal(u.searchParams.get("seg"), "paying_generic");
+  assert.equal(u.searchParams.get("v"), "s01");
+  assert.equal(u.searchParams.get("t"), null);
+});
+
+test("pack-style template renders with seg/v links and no leftover placeholders", () => {
+  const tpl = '<p>Hi {{first_name|there}}</p><a href="{{survey_url}}">S</a><a href="{{feature_request_url}}">F</a><a href="{{unsubscribe_url}}">U</a>';
+  const out = renderSurvey(tpl, { firstName: undefined, surveyUrl: surveyLink("https://tally.so/r/w7Lk2Q", { seg: "a" }), featureUrl: surveyLink("https://tally.so/r/m3Pq9Z", { seg: "a" }) }, true);
+  assert.match(out, /seg=a&amp;v=s01/);
+  assert.doesNotMatch(out, /[?&](amp;)?t=/);
+  assert.deepEqual(out.match(/\{\{[^}]*\}\}/g), ["{{unsubscribe_url}}"]);
+  assert.throws(() => renderSurvey(tpl + "{{t}}", { surveyUrl: "https://tally.so/r/w7Lk2Q", featureUrl: "https://tally.so/r/m3Pq9Z" }, true));
+});

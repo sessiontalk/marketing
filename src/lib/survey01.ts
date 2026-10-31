@@ -37,9 +37,10 @@ export function formUrlProblems(label: string, url: string | undefined): string[
 }
 
 /** Hidden fields (seg, v, optional signed t). Never the unsubscribe token. */
-export function surveyLink(base: string, f: { seg?: string; t?: string; v?: string }): string {
+/** Survey links are tagged by segment and version only (no per-person token). */
+export function surveyLink(base: string, f: { seg?: string; v?: string }): string {
   const u = new URL(base);
-  if (f.t) u.searchParams.set("t", f.t);
+  u.searchParams.delete("t");
   if (f.seg) u.searchParams.set("seg", f.seg.replace(/[^A-Za-z0-9_.-]/g, "_").slice(0, 64));
   u.searchParams.set("v", f.v || SURVEY_VERSION);
   return u.toString();
