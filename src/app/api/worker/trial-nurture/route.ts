@@ -2,10 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { contacts, trialAccounts, trialNurtureSteps, unsubscribeTokens } from "@/db/schema";
 import { and, eq, inArray } from "drizzle-orm";
-import { TEAMS_PRODUCTS } from "@/lib/trialNurture/testSequence";
 import { isDripSendingEnabled } from "@/lib/killSwitch";
-import { decide, render, Step } from "@/lib/trialNurture/schedule";
-import { NURTURE_COPY } from "@/lib/trialNurture/copy";
+import { decide, render, Step, NURTURE_PRODUCTS, sequenceKey } from "@/lib/trialNurture/schedule";
+import { copyFor } from "@/lib/trialNurture/copy";
 import { missingLinkFields, assertSafeNurtureText } from "@/lib/trialNurture/links";
 import { trialNurtureBccAddress } from "@/lib/trialNurture/bcc";
 import { isExcludedWorkspace, isExcludedEmail, isStep5ManualWorkspace } from "@/lib/trialNurture/exclusions";
@@ -24,7 +23,7 @@ async function run(req: NextRequest) {
   const now = new Date();
   const rows = await db.select({ t: trialAccounts, c: contacts }).from(trialAccounts)
     .innerJoin(contacts, eq(trialAccounts.contactId, contacts.id))
-    .where(and(eq(trialAccounts.planStatus, "trial"), inArray(trialAccounts.product, [...TEAMS_PRODUCTS]))).limit(BATCH);
+    .where(and(eq(trialAccounts.planStatus, "trial"), inArray(trialAccounts.product, [...NURTURE_PRODUCTS]))).limit(BATCH);
   let sent = 0, skipped = 0, failed = 0, held = 0;
 
   for (const { t, c } of rows) {
@@ -40,11 +39,13 @@ async function run(req: NextRequest) {
     if (d.action === "wait" || d.action === "stop") continue;
     // Sales sends email 05 manually for these tenants: record step 5 as skipped, never send it.
     if (d.action === "send" && d.step === 5 && isStep5ManualWorkspace(t)) d = { step: 5, action: "skip", reason: "manual_sales" };
-    const copy = NURTURE_COPY.find((x) => x.step === d.step)!;
-    if (d.action === "send" && !copy.final) continue; // copy not final: hold, don't skip
+    const key = sequenceKey(t.product)!;
+    const copy = copyFor(key, d.step)!;
+    // Copy not final (e.g. hosted_pbx / generic_softphone drafts): hold, don't send or claim.
+    if (d.action === "send" && !copy.final) { held++; continue; }
     // Hold (don't send a broken link) when sip_domain / accountName needed by this step is missing.
     if (d.action === "send") {
-      const missing = missingLinkFields(d.step, { sipDomain: t.sipDomain, accountName: t.accountName });
+      const missing = missingLinkFields(d.step, { sipDomain: t.sipDomain, accountName: t.accountName }, t.product);
       if (missing.length) {
         console.log(JSON.stringify({
           level: "info", msg: "trial_nurture_hold_missing_link_field",
@@ -70,7 +71,7 @@ async function run(req: NextRequest) {
       const headers = listUnsubscribeHeaders(publicUnsubscribeUrl(unsubToken), LIST_UNSUBSCRIBE_MAILTO);
       const r = await sendEmail({ to: c.email, subject: copy.subject, text,
         from: NURTURE_FROM_EMAIL, replyTo: NURTURE_REPLY_TO, bcc, headers,
-        tags: { nurture: "sessionpbx_trial", step: String(d.step) } });
+        tags: { nurture: key, step: String(d.step) } });
       await db.update(trialNurtureSteps).set({ status: "sent", sesMessageId: r.id }).where(eq(trialNurtureSteps.id, claimed[0].id));
       sent++;
     } catch (err: any) {

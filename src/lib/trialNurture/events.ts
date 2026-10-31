@@ -12,7 +12,8 @@ export const TrialEvent = z.object({
   email: z.string().email(),
   objectId: z.string().optional(),         // SessionCloud user objectId
   app_id: z.string().optional(),           // SessionCloud app/project id
-  product: z.enum(["teams_phone", "teams_business", "hosted"]).optional(),
+  product: z.enum(["teams_phone", "teams_business", "hosted", "hosted_pbx", "generic_softphone"]).optional(),
+  trial_type: z.enum(["teams_hosted", "hosted_pbx", "generic_softphone"]).optional(),
   firstname: z.string().optional(),
   account_name: z.string().min(1).max(128).optional(), // SessionCloud accountName (billing links)
   // tenants.sip_domain e.g. slug.uk.sip.sessiontalk.io — store/use as-is; never strip .sip

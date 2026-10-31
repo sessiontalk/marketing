@@ -12,8 +12,8 @@ const base = () => ({
 });
 const now = new Date("2026-10-14T12:00:00Z");
 
-test("Teams-only: hosted trials stop, teams_phone/teams_business proceed", () => {
-  assert.deepEqual(decide({ ...base(), product: "hosted" }, now), { action: "stop", reason: "not_teams" });
+test("legacy 'hosted' product has no sequence, teams_phone/teams_business proceed", () => {
+  assert.deepEqual(decide({ ...base(), product: "hosted" }, now), { action: "stop", reason: "no_sequence" });
   assert.deepEqual(decide({ ...base(), product: "teams_phone" }, now), { step: 1, action: "send" });
   assert.deepEqual(decide({ ...base(), product: "teams_business" }, now), { step: 1, action: "send" });
   assert.equal(isTeamsProduct("hosted"), false);

@@ -39,7 +39,9 @@ export function billingUrl(accountName: string): string {
 }
 
 /** Which stored fields a step's body needs for its CTA links. */
-export function requiredLinkFields(step: Step): Array<"sip_domain" | "accountName"> {
+export function requiredLinkFields(step: Step, product?: string): Array<"sip_domain" | "accountName"> {
+  // hosted_pbx / generic_softphone copy links only to cloud.sessiontalk.co.uk: billing needs accountName.
+  if (product === "hosted_pbx" || product === "generic_softphone") return step === 5 ? ["accountName"] : [];
   switch (step) {
     case 1:
     case 2:
@@ -54,10 +56,11 @@ export function requiredLinkFields(step: Step): Array<"sip_domain" | "accountNam
 
 export function missingLinkFields(
   step: Step,
-  fields: { sipDomain?: string | null; accountName?: string | null }
+  fields: { sipDomain?: string | null; accountName?: string | null },
+  product?: string
 ): Array<"sip_domain" | "accountName"> {
   const missing: Array<"sip_domain" | "accountName"> = [];
-  for (const f of requiredLinkFields(step)) {
+  for (const f of requiredLinkFields(step, product)) {
     if (f === "sip_domain" && !(fields.sipDomain || "").trim()) missing.push("sip_domain");
     if (f === "accountName" && !(fields.accountName || "").trim()) missing.push("accountName");
   }
