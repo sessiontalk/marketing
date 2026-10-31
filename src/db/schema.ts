@@ -34,6 +34,7 @@ export const contacts = pgTable(
     source: varchar("source", { length: 50 }).default("csv_import"), // csv_import | webhook
     unsubscribed: boolean("unsubscribed").default(false),
     unsubscribedAt: timestamp("unsubscribed_at"),
+    doNotContactReason: varchar("do_not_contact_reason", { length: 50 }), // ses_complaint | ses_unsubscribe | ses_hard_bounce (null = manual/link unsubscribe or none)
     createdAt: timestamp("created_at").defaultNow(),
     updatedAt: timestamp("updated_at").defaultNow(),
     originalCreatedAt: timestamp("original_created_at"), // from cloud.sessiontalk.co.uk
@@ -230,3 +231,37 @@ export const processedEvents = pgTable("processed_events", {
   eventId: varchar("event_id", { length: 128 }).primaryKey(),
   receivedAt: timestamp("received_at").defaultNow(),
 });
+
+// ─── SES newsletter events (config set marketing-newsletter → SNS → SQS) ─────
+/** One row per SES event per recipient. event_key = sha256(messageId|kind|recipient|link|timestamp) ⇒ idempotent replays. */
+export const emailEvents = pgTable(
+  "email_events",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    eventKey: varchar("event_key", { length: 64 }).notNull(),
+    sesMessageId: varchar("ses_message_id", { length: 255 }).notNull(),
+    kind: varchar("kind", { length: 20 }).notNull(), // send|delivery|open|click|bounce|complaint|unsubscribe|delivery_delay|reject|other
+    recipient: varchar("recipient", { length: 255 }).notNull(),
+    contactId: uuid("contact_id").references(() => contacts.id),
+    occurredAt: timestamp("occurred_at").notNull(),
+    campaign: varchar("campaign", { length: 100 }),
+    variant: varchar("variant", { length: 50 }),
+    subject: varchar("subject", { length: 500 }),
+    link: text("link"),
+    userAgent: text("user_agent"),
+    ipAddress: varchar("ip_address", { length: 64 }),
+    sesBotHint: varchar("ses_bot_hint", { length: 20 }),
+    bounceType: varchar("bounce_type", { length: 30 }),
+    bounceSubType: varchar("bounce_sub_type", { length: 50 }),
+    isBot: boolean("is_bot"),
+    botReason: varchar("bot_reason", { length: 50 }),
+    activityId: uuid("activity_id").references(() => activities.id),
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (t) => ({
+    keyUniq: uniqueIndex("email_events_event_key_uniq").on(t.eventKey),
+    msgIdx: index("email_events_msg_idx").on(t.sesMessageId, t.recipient),
+    campaignIdx: index("email_events_campaign_kind_idx").on(t.campaign, t.kind),
+    contactIdx: index("email_events_contact_idx").on(t.contactId),
+  })
+);
