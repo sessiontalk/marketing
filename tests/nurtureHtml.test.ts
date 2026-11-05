@@ -8,7 +8,7 @@ test("html wraps text: escaped, paragraphs, autolinks, unsubscribe link", () => 
   assert.match(html, /Hi &lt;Bob&gt; &amp; co,/);
   assert.ok(!html.includes("<Bob>"));
   assert.match(html, /<a href="https:\/\/cloud\.sessiontalk\.io\/x"/);
-  assert.match(html, /href="https:\/\/ex\.test\/u\?t=a&amp;b=1"[^>]*>Unsubscribe</);
+  assert.match(html, /href="https:\/\/ex\.test\/u\?t=a&amp;b=1"[^>]*>Unsubscribe/);
   assert.equal((textToHtml("a\n\nb").match(/<p /g) || []).length, 2);
   assert.equal(htmlHasUnfilledPlaceholder(html), false);
   assert.equal(htmlHasUnfilledPlaceholder(renderNurtureHtml({ textBody: "x {docs_url}", unsubscribeUrl: "https://u" })), true);

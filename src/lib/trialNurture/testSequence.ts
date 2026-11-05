@@ -1,7 +1,7 @@
 import { NURTURE_COPY, NURTURE_SEQUENCES } from "./copy";
 import { render, type Step } from "./schedule";
 import { assertSafeNurtureText, UNFILLED_PLACEHOLDER_RE } from "./links";
-import { renderNurtureHtml, htmlHasUnfilledPlaceholder, htmlToVisibleText, htmlHrefs } from "./htmlTemplate";
+import { renderNurtureHtml, escapeHtml, htmlHasUnfilledPlaceholder, htmlToVisibleText, htmlHrefs } from "./htmlTemplate";
 import { listUnsubscribeHeaders, publicUnsubscribeUrl } from "../unsubscribe";
 
 export const TEAMS_PRODUCTS = ["teams_phone", "teams_business"] as const;
@@ -74,7 +74,7 @@ export function buildTestSequence(input: TestSequenceInput) {
     if (UNFILLED_PLACEHOLDER_RE.test(text) || UNFILLED_PLACEHOLDER_RE.test(subj)) throw new Error(`unfilled placeholder in step ${c.step}`);
     assertSafeNurtureText(text, sipDomain);
     const subject = input.productionSubject ? subj : `[TEST ${c.step}/5] ${subj}`;
-    const htmlBody = c.html ? render(c.html, input.firstName ?? "", fields) : undefined;
+    const htmlBody = c.html ? render(c.html, escapeHtml(input.firstName ?? ""), fields) : undefined;
     const html = renderNurtureHtml({ textBody: text, unsubscribeUrl: publicUnsubscribeUrl(TEST_UNSUBSCRIBE_TOKEN), subject: subj, htmlBody });
     if (htmlHasUnfilledPlaceholder(html)) throw new Error(`unfilled placeholder in html step ${c.step}`);
     assertSafeNurtureText(htmlToVisibleText(html) + "\n" + htmlHrefs(html), sipDomain);

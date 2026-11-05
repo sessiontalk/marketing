@@ -10,7 +10,7 @@ import { trialNurtureBccAddress } from "@/lib/trialNurture/bcc";
 import { isExcludedWorkspace, isExcludedEmail, isStep5ManualWorkspace, junkReason } from "@/lib/trialNurture/exclusions";
 import { sendEmail, NURTURE_FROM_EMAIL, NURTURE_REPLY_TO, LIST_UNSUBSCRIBE_MAILTO } from "@/lib/email";
 import { generateUnsubscribeToken } from "@/lib/tokens";
-import { renderNurtureHtml, htmlHasUnfilledPlaceholder, htmlToVisibleText, htmlHrefs } from "@/lib/trialNurture/htmlTemplate";
+import { renderNurtureHtml, escapeHtml, htmlHasUnfilledPlaceholder, htmlToVisibleText, htmlHrefs } from "@/lib/trialNurture/htmlTemplate";
 import { listUnsubscribeHeaders, publicUnsubscribeUrl } from "@/lib/unsubscribe";
 
 const BATCH = 50;
@@ -89,7 +89,7 @@ async function run(req: NextRequest) {
       const unsubUrl = publicUnsubscribeUrl(unsubToken);
       const headers = listUnsubscribeHeaders(unsubUrl, LIST_UNSUBSCRIBE_MAILTO);
       // Multipart: always text + HTML (never HTML-only). HoM's copy.html (if present) gets the same placeholder render.
-      const htmlBody = copy.html ? render(copy.html, c.firstname, fields) : undefined;
+      const htmlBody = copy.html ? render(copy.html, escapeHtml(c.firstname || ""), fields) : undefined;
       const html = renderNurtureHtml({ textBody: text, unsubscribeUrl: unsubUrl, subject, htmlBody });
       if (htmlHasUnfilledPlaceholder(html)) {
         console.log(JSON.stringify({ level: "info", msg: "trial_nurture_hold_unfilled_placeholder", reason: "unfilled_placeholder_html", trialAccountId: t.id, step: d.step }));

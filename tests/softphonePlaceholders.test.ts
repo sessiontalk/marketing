@@ -17,8 +17,10 @@ test("generic softphone: all 5 steps fill every token incl. subject", () => {
   assert.equal(formatTrialEndsDate(ends), "5 November 2026");
   const s1 = render(GENERIC_SOFTPHONE_COPY[0].body, "Sam", { product: "generic_softphone", step: 1 });
   assert.match(s1, /https:\/\/cloud\.sessiontalk\.io\n/);
-  assert.match(s1, /mobile-softphones\/accounts\/create-account/);
-  assert.match(s1, /https:\/\/sessiontalk\.io\/voip-providers/);
+  assert.match(s1, /sessioncloud\/creating-first-app/);
+  assert.match(s1, /sessioncloud\/provisioning/);
+  assert.ok(GENERIC_SOFTPHONE_COPY.every((c) => !c.final && !!c.html), "softphone held final=false, html present");
+  assert.ok(GENERIC_SOFTPHONE_COPY.every((c) => !/provider_directory_url|\{docs_url\}|voip-providers/.test(c.body + (c.html || ""))));
 });
 test("step 5 without trialEndsAt holds and leaves raw token", () => {
   const c = GENERIC_SOFTPHONE_COPY.find((x) => x.step === 5)!;
@@ -37,5 +39,5 @@ test("hosted/teams unchanged", () => {
 test("test-sequence softphone sample passes", () => {
   const out = buildTestSequence({ to: "a@b.co", sipDomain: "acme.us.sip.sessiontalk.io", sequence: "generic_softphone", trialEndsAt: ends });
   assert.equal(out.length, 5);
-  assert.equal(out[4].subject, "[TEST 5/5] Your Generic Softphone trial ends on 5 November 2026");
+  assert.equal(out[4].subject, "[TEST 5/5] Your softphone trial ends on 5 November 2026");
 });

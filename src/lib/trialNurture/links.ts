@@ -44,28 +44,28 @@ export function billingUrl(accountName: string): string {
  */
 export const SOFTPHONE_WORKSPACE_URL = "https://cloud.sessiontalk.io";
 
-/** Per-step {docs_url} / {provider_directory_url} for generic_softphone (HoM defaults, 5 Nov 2026). */
-export const SOFTPHONE_STEP_LINKS: Partial<Record<Step, { docsUrl?: string; providerDirectoryUrl?: string }>> = {
-  1: { docsUrl: "https://docs.sessiontalk.io/docs/mobile-softphones/accounts/create-account", providerDirectoryUrl: "https://sessiontalk.io/voip-providers" },
-  2: { docsUrl: "https://docs.sessiontalk.io/docs/desktop-softphones/app-set-up" },
-  3: { docsUrl: "https://docs.sessiontalk.io/docs/voip-providers/getting-started", providerDirectoryUrl: "https://cloud.sessiontalk.io/providers/" },
+/**
+ * generic_softphone placeholder defaults — HoM pack html/sequence.json placeholder_defaults (5 Nov 2026).
+ * Old {docs_url} / {provider_directory_url} are no longer in the copy (provider directory dropped 07:25 GMT).
+ */
+export const SOFTPHONE_PLACEHOLDER_DEFAULTS: Record<string, string> = {
+  workspace_url: SOFTPHONE_WORKSPACE_URL,
+  getting_started_docs_url: "https://docs.sessiontalk.io/docs/sessioncloud/creating-first-app",
+  provisioning_docs_url: "https://docs.sessiontalk.io/docs/sessioncloud/provisioning",
+  qr_docs_url: "https://docs.sessiontalk.io/docs/sessioncloud/qr-codes/using-qr-codes-without-a-provisioning-server",
+  desktop_link_docs_url: "https://docs.sessiontalk.io/docs/sessioncloud/desktop-links",
+  desktop_setup_docs_url: "https://docs.sessiontalk.io/docs/desktop-softphones/external-provisioning",
+  push_docs_url: "https://docs.sessiontalk.io/docs/pushserver/troubleshooting",
+  push_overview_docs_url: "https://docs.sessiontalk.io/docs/pushserver/overview",
+  branding_docs_url: "https://docs.sessiontalk.io/docs/partners/branded-softphones",
+  misc_docs_url: "https://docs.sessiontalk.io/docs/sessioncloud/miscellaneous",
+  appstore_docs_url: "https://docs.sessiontalk.io/docs/sessioncloud/appstore-data",
 };
 
-/**
- * Upcoming softphone rewrite placeholders (HoM pack 2026-11-05 §defaults). Copy is still final:false;
- * render fills these; any token left unfilled holds the send via UNFILLED_PLACEHOLDER_RE.
- */
-export const SOFTPHONE_PROVISIONING_LINKS = {
-  qrDocsUrl: "https://docs.sessiontalk.io/docs/sessioncloud/qr-codes/using-qr-codes-without-a-provisioning-server",
-  // Alt if trial uses an external provisioning server: .../qr-codes/using-qr-codes-with-your-provisioning-server
-  desktopLinkDocsUrl: "https://docs.sessiontalk.io/docs/sessioncloud/desktop-links",
-  pushDocsUrl: "https://docs.sessiontalk.io/docs/pushserver/troubleshooting",
-} as const;
-
-/** Static link fields for a product/step (empty for Teams/Hosted). */
-export function stepLinkFields(step: Step, product?: string | null): { workspaceUrl?: string; docsUrl?: string; providerDirectoryUrl?: string; qrDocsUrl?: string; desktopLinkDocsUrl?: string; pushDocsUrl?: string } {
+/** Static link tokens for a product/step (empty for Teams/Hosted). Keys are {token} names. */
+export function stepLinkFields(_step: Step, product?: string | null): Record<string, string> & { workspaceUrl?: string } {
   if (product !== "generic_softphone") return {};
-  return { workspaceUrl: SOFTPHONE_WORKSPACE_URL, ...SOFTPHONE_PROVISIONING_LINKS, ...(SOFTPHONE_STEP_LINKS[step] || {}) };
+  return { ...SOFTPHONE_PLACEHOLDER_DEFAULTS, workspaceUrl: SOFTPHONE_WORKSPACE_URL };
 }
 
 /** en-GB human date, e.g. "5 November 2026" (UTC so it never shifts by a day). */

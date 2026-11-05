@@ -111,8 +111,6 @@ export interface RenderFields {
   sipDomain?: string | null;
   /** Explicit link overrides; otherwise filled from stepLinkFields(step, product). */
   workspaceUrl?: string | null;
-  docsUrl?: string | null;
-  providerDirectoryUrl?: string | null;
   trialEndsAt?: Date | string | null;
   product?: string | null;
   step?: Step;
@@ -131,14 +129,10 @@ export function render(body: string, firstName: string | null | undefined, field
   const def = fields.step ? stepLinkFields(fields.step, fields.product) : {};
   const ws = (fields.workspaceUrl || def.workspaceUrl || "").trim();
   if (ws) out = out.replace(/\{workspace_url\}/g, ws);
-  const docs = (fields.docsUrl || def.docsUrl || "").trim();
-  if (docs) out = out.replace(/\{docs_url\}/g, docs);
-  const dir = (fields.providerDirectoryUrl || def.providerDirectoryUrl || "").trim();
-  if (dir) out = out.replace(/\{provider_directory_url\}/g, dir);
-  const d = def as { qrDocsUrl?: string; desktopLinkDocsUrl?: string; pushDocsUrl?: string };
-  if (d.qrDocsUrl) out = out.replace(/\{qr_docs_url\}/g, d.qrDocsUrl);
-  if (d.desktopLinkDocsUrl) out = out.replace(/\{desktop_link_docs_url\}/g, d.desktopLinkDocsUrl);
-  if (d.pushDocsUrl) out = out.replace(/\{push_docs_url\}/g, d.pushDocsUrl);
+  for (const [k, v] of Object.entries(def)) {
+    if (k === "workspaceUrl" || k === "workspace_url" || !v) continue;
+    out = out.split(`{${k}}`).join(v);
+  }
   const ends = formatTrialEndsDate(fields.trialEndsAt);
   if (ends) out = out.replace(/\{trial_ends_date\}/g, ends);
   return out;

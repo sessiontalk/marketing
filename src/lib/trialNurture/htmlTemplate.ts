@@ -11,6 +11,7 @@
  * as `export const NURTURE_SHELL_HTML = `...``, then set DEFAULT_SHELL_HTML below to it. No runtime read of /workspace.
  */
 import { UNFILLED_PLACEHOLDER_RE } from "./links";
+import { NURTURE_SHELL_HTML } from "./shell.html";
 
 export const BRAND_PURPLE = "#5B2D8E"; // interim accent; HoM to confirm logo_purple hex
 export const UNSUBSCRIBE_TOKEN = "{{unsubscribe_url}}"; // same token shape the newsletter uses
@@ -19,7 +20,7 @@ export const BODY_TEXT_TOKEN = "{{body_text}}";
 export const LOGO_URL = "https://sessiontalk.io/logo_purple.png";
 
 /** HoM shell string once delivered (null = interim wrapper). */
-export const DEFAULT_SHELL_HTML: string | null = null;
+export const DEFAULT_SHELL_HTML: string | null = NURTURE_SHELL_HTML; // HoM shell wired 5 Nov 2026
 
 export function isShell(html: string | null | undefined): html is string {
   return !!html && html.includes(BODY_HTML_TOKEN);
