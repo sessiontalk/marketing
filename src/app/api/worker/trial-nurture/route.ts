@@ -3,9 +3,9 @@ import { db } from "@/db";
 import { activities, contacts, trialAccounts, trialNurtureSteps, unsubscribeTokens } from "@/db/schema";
 import { and, eq, inArray } from "drizzle-orm";
 import { isDripSendingEnabled } from "@/lib/killSwitch";
-import { decide, render, Step, NURTURE_PRODUCTS, sequenceKey } from "@/lib/trialNurture/schedule";
+import { decide, render, renderSubject, Step, NURTURE_PRODUCTS, sequenceKey } from "@/lib/trialNurture/schedule";
 import { copyFor } from "@/lib/trialNurture/copy";
-import { missingLinkFields, assertSafeNurtureText } from "@/lib/trialNurture/links";
+import { missingLinkFields, assertSafeNurtureText, UNFILLED_PLACEHOLDER_RE } from "@/lib/trialNurture/links";
 import { trialNurtureBccAddress } from "@/lib/trialNurture/bcc";
 import { isExcludedWorkspace, isExcludedEmail, isStep5ManualWorkspace, junkReason } from "@/lib/trialNurture/exclusions";
 import { sendEmail, NURTURE_FROM_EMAIL, NURTURE_REPLY_TO, LIST_UNSUBSCRIBE_MAILTO } from "@/lib/email";
@@ -50,7 +50,7 @@ async function run(req: NextRequest) {
     if (d.action === "send" && !copy.final) { held++; continue; }
     // Hold (don't send a broken link) when sip_domain / accountName needed by this step is missing.
     if (d.action === "send") {
-      const missing = missingLinkFields(d.step, { sipDomain: t.sipDomain, accountName: t.accountName }, t.product);
+      const missing = missingLinkFields(d.step, { sipDomain: t.sipDomain, accountName: t.accountName, trialEndsAt: t.trialEndsAt }, t.product);
       if (missing.length) {
         console.log(JSON.stringify({
           level: "info", msg: "trial_nurture_hold_missing_link_field",
@@ -60,13 +60,25 @@ async function run(req: NextRequest) {
         continue;
       }
     }
+    // Render before claiming so a leftover {token} holds (unclaimed, retried next run) instead of sending raw braces.
+    const fields = { accountName: t.accountName, sipDomain: t.sipDomain, trialEndsAt: t.trialEndsAt, product: t.product, step: d.step };
+    const text = d.action === "send" ? render(copy.body, c.firstname, fields) : "";
+    const subject = d.action === "send" ? renderSubject(copy.subject, c.firstname, fields) : copy.subject;
+    if (d.action === "send" && (UNFILLED_PLACEHOLDER_RE.test(text) || UNFILLED_PLACEHOLDER_RE.test(subject))) {
+      console.log(JSON.stringify({
+        level: "info", msg: "trial_nurture_hold_unfilled_placeholder", reason: "unfilled_placeholder",
+        trialAccountId: t.id, appId: t.appId, step: d.step,
+        tokens: [...new Set((subject + "\n" + text).match(/\{[a-zA-Z_]+\}/g) || [])],
+      }));
+      held++;
+      continue;
+    }
     // Claim the step first (unique (trial, step)) so concurrent runs can never double-send.
     const claimed = await db.insert(trialNurtureSteps)
       .values({ trialAccountId: t.id, step: d.step, status: d.action === "skip" ? "skipped" : "sending", reason: d.action === "skip" ? d.reason : null })
       .onConflictDoNothing().returning();
     if (!claimed.length || d.action === "skip") { skipped++; continue; }
     try {
-      const text = render(copy.body, c.firstname, { accountName: t.accountName, sipDomain: t.sipDomain });
       assertSafeNurtureText(text, t.sipDomain);
       // bccInternal was set at enrolment and must not be recomputed here.
       const bcc = t.bccInternal ? [trialNurtureBccAddress()] : undefined;
@@ -74,7 +86,7 @@ async function run(req: NextRequest) {
       const unsubToken = generateUnsubscribeToken();
       await db.insert(unsubscribeTokens).values({ token: unsubToken, contactId: c.id });
       const headers = listUnsubscribeHeaders(publicUnsubscribeUrl(unsubToken), LIST_UNSUBSCRIBE_MAILTO);
-      const r = await sendEmail({ to: c.email, subject: copy.subject, text,
+      const r = await sendEmail({ to: c.email, subject, text,
         from: NURTURE_FROM_EMAIL, replyTo: NURTURE_REPLY_TO, bcc, headers,
         tags: { nurture: key, step: String(d.step) },
         configurationSetName: process.env.SES_NURTURE_CONFIGURATION_SET || undefined });
@@ -82,7 +94,7 @@ async function run(req: NextRequest) {
       // Observability: one CRM activity per send (contact timeline). Never fails the send.
       try {
         await db.insert(activities).values({ contactId: c.id, type: "email", performedBy: "trial-nurture",
-          subject: `Trial nurture ${key} step ${d.step}: ${copy.subject}`.slice(0, 500),
+          subject: `Trial nurture ${key} step ${d.step}: ${subject}`.slice(0, 500),
           body: `Auto-sent from ${NURTURE_FROM_EMAIL}. SES MessageId ${r.id ?? "n/a"}. app_id ${t.appId}.` });
       } catch (e: any) {
         console.log(JSON.stringify({ level: "warn", msg: "trial_nurture_activity_failed", trialAccountId: t.id, err: String(e?.name || "error") }));

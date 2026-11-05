@@ -1,4 +1,4 @@
-import { workspaceHost } from "./links";
+import { workspaceHost, stepLinkFields, formatTrialEndsDate } from "./links";
 /**
  * SessionPBX (Teams Phone / Teams Business) trial nurture — activity-triggered.
  * Pure decision logic, no I/O, so it is unit-testable. Skip rules are re-checked at send time.
@@ -109,6 +109,13 @@ export interface RenderFields {
   accountName?: string | null;
   /** SessionCloud public.tenants.sip_domain — use as-is (includes .sip). Never derive a non-.sip host. */
   sipDomain?: string | null;
+  /** Explicit link overrides; otherwise filled from stepLinkFields(step, product). */
+  workspaceUrl?: string | null;
+  docsUrl?: string | null;
+  providerDirectoryUrl?: string | null;
+  trialEndsAt?: Date | string | null;
+  product?: string | null;
+  step?: Step;
 }
 
 /** Fill placeholders. Caller must hold when missingLinkFields(step, fields) is non-empty. */
@@ -121,5 +128,19 @@ export function render(body: string, firstName: string | null | undefined, field
   if (sip) out = out.replace(/\{sip_domain\}/g, workspaceHost(sip));
   const acct = (fields.accountName || "").trim();
   if (acct) out = out.replace(/\{accountName\}/g, encodeURIComponent(acct));
+  const def = fields.step ? stepLinkFields(fields.step, fields.product) : {};
+  const ws = (fields.workspaceUrl || def.workspaceUrl || "").trim();
+  if (ws) out = out.replace(/\{workspace_url\}/g, ws);
+  const docs = (fields.docsUrl || def.docsUrl || "").trim();
+  if (docs) out = out.replace(/\{docs_url\}/g, docs);
+  const dir = (fields.providerDirectoryUrl || def.providerDirectoryUrl || "").trim();
+  if (dir) out = out.replace(/\{provider_directory_url\}/g, dir);
+  const ends = formatTrialEndsDate(fields.trialEndsAt);
+  if (ends) out = out.replace(/\{trial_ends_date\}/g, ends);
   return out;
+}
+
+/** Render a subject line with the same fields (no "Hi {first_name}," fallback needed). */
+export function renderSubject(subject: string, firstName: string | null | undefined, fields: RenderFields = {}): string {
+  return render(subject, firstName, fields);
 }
