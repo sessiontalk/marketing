@@ -3,7 +3,7 @@
 // Placeholders: {first_name} (fallback "there"), {sip_domain} (tenant .sip host as-is),
 // {accountName} (billing only). Never build {slug}.{region}.sessiontalk.io (no .sip) — that
 // wildcard resolves to cloudtest. Hold send if a required link field is missing.
-export interface NurtureCopy { step: 1|2|3|4|5; file: string; subject: string; body: string; final: boolean }
+export interface NurtureCopy { step: 1|2|3|4|5; file: string; subject: string; body: string; final: boolean; /** Optional HoM branded HTML (same {placeholders}; {{unsubscribe_url}} for unsubscribe). Absent => text is wrapped. */ html?: string }
 export const NURTURE_COPY: NurtureCopy[] = [
   {
     "file": "01-no-extension-1h.md",

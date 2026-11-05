@@ -10,6 +10,7 @@ import { trialNurtureBccAddress } from "@/lib/trialNurture/bcc";
 import { isExcludedWorkspace, isExcludedEmail, isStep5ManualWorkspace, junkReason } from "@/lib/trialNurture/exclusions";
 import { sendEmail, NURTURE_FROM_EMAIL, NURTURE_REPLY_TO, LIST_UNSUBSCRIBE_MAILTO } from "@/lib/email";
 import { generateUnsubscribeToken } from "@/lib/tokens";
+import { renderNurtureHtml, htmlHasUnfilledPlaceholder, htmlToVisibleText, htmlHrefs } from "@/lib/trialNurture/htmlTemplate";
 import { listUnsubscribeHeaders, publicUnsubscribeUrl } from "@/lib/unsubscribe";
 
 const BATCH = 50;
@@ -85,8 +86,19 @@ async function run(req: NextRequest) {
       // One unsubscribe token per send (same as the sequences worker), used for List-Unsubscribe (RFC 8058 one-click).
       const unsubToken = generateUnsubscribeToken();
       await db.insert(unsubscribeTokens).values({ token: unsubToken, contactId: c.id });
-      const headers = listUnsubscribeHeaders(publicUnsubscribeUrl(unsubToken), LIST_UNSUBSCRIBE_MAILTO);
-      const r = await sendEmail({ to: c.email, subject, text,
+      const unsubUrl = publicUnsubscribeUrl(unsubToken);
+      const headers = listUnsubscribeHeaders(unsubUrl, LIST_UNSUBSCRIBE_MAILTO);
+      // Multipart: always text + HTML (never HTML-only). HoM's copy.html (if present) gets the same placeholder render.
+      const htmlBody = copy.html ? render(copy.html, c.firstname, fields) : undefined;
+      const html = renderNurtureHtml({ textBody: text, unsubscribeUrl: unsubUrl, subject, htmlBody });
+      if (htmlHasUnfilledPlaceholder(html)) {
+        console.log(JSON.stringify({ level: "info", msg: "trial_nurture_hold_unfilled_placeholder", reason: "unfilled_placeholder_html", trialAccountId: t.id, step: d.step }));
+        // Release the claim so it retries next run instead of sending raw braces.
+        await db.delete(trialNurtureSteps).where(eq(trialNurtureSteps.id, claimed[0].id));
+        held++; continue;
+      }
+      assertSafeNurtureText(htmlToVisibleText(html) + "\n" + htmlHrefs(html), t.sipDomain);
+      const r = await sendEmail({ to: c.email, subject, text, html,
         from: NURTURE_FROM_EMAIL, replyTo: NURTURE_REPLY_TO, bcc, headers,
         tags: { nurture: key, step: String(d.step) },
         configurationSetName: process.env.SES_NURTURE_CONFIGURATION_SET || undefined });
