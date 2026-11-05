@@ -135,6 +135,10 @@ export function render(body: string, firstName: string | null | undefined, field
   if (docs) out = out.replace(/\{docs_url\}/g, docs);
   const dir = (fields.providerDirectoryUrl || def.providerDirectoryUrl || "").trim();
   if (dir) out = out.replace(/\{provider_directory_url\}/g, dir);
+  const d = def as { qrDocsUrl?: string; desktopLinkDocsUrl?: string; pushDocsUrl?: string };
+  if (d.qrDocsUrl) out = out.replace(/\{qr_docs_url\}/g, d.qrDocsUrl);
+  if (d.desktopLinkDocsUrl) out = out.replace(/\{desktop_link_docs_url\}/g, d.desktopLinkDocsUrl);
+  if (d.pushDocsUrl) out = out.replace(/\{push_docs_url\}/g, d.pushDocsUrl);
   const ends = formatTrialEndsDate(fields.trialEndsAt);
   if (ends) out = out.replace(/\{trial_ends_date\}/g, ends);
   return out;

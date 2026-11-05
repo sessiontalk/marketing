@@ -51,10 +51,21 @@ export const SOFTPHONE_STEP_LINKS: Partial<Record<Step, { docsUrl?: string; prov
   3: { docsUrl: "https://docs.sessiontalk.io/docs/voip-providers/getting-started", providerDirectoryUrl: "https://cloud.sessiontalk.io/providers/" },
 };
 
+/**
+ * Upcoming softphone rewrite placeholders (HoM pack 2026-11-05 §defaults). Copy is still final:false;
+ * render fills these; any token left unfilled holds the send via UNFILLED_PLACEHOLDER_RE.
+ */
+export const SOFTPHONE_PROVISIONING_LINKS = {
+  qrDocsUrl: "https://docs.sessiontalk.io/docs/sessioncloud/qr-codes/using-qr-codes-without-a-provisioning-server",
+  // Alt if trial uses an external provisioning server: .../qr-codes/using-qr-codes-with-your-provisioning-server
+  desktopLinkDocsUrl: "https://docs.sessiontalk.io/docs/sessioncloud/desktop-links",
+  pushDocsUrl: "https://docs.sessiontalk.io/docs/pushserver/troubleshooting",
+} as const;
+
 /** Static link fields for a product/step (empty for Teams/Hosted). */
-export function stepLinkFields(step: Step, product?: string | null): { workspaceUrl?: string; docsUrl?: string; providerDirectoryUrl?: string } {
+export function stepLinkFields(step: Step, product?: string | null): { workspaceUrl?: string; docsUrl?: string; providerDirectoryUrl?: string; qrDocsUrl?: string; desktopLinkDocsUrl?: string; pushDocsUrl?: string } {
   if (product !== "generic_softphone") return {};
-  return { workspaceUrl: SOFTPHONE_WORKSPACE_URL, ...(SOFTPHONE_STEP_LINKS[step] || {}) };
+  return { workspaceUrl: SOFTPHONE_WORKSPACE_URL, ...SOFTPHONE_PROVISIONING_LINKS, ...(SOFTPHONE_STEP_LINKS[step] || {}) };
 }
 
 /** en-GB human date, e.g. "5 November 2026" (UTC so it never shifts by a day). */
