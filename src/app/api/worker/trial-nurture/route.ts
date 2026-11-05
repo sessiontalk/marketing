@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
-import { contacts, trialAccounts, trialNurtureSteps, unsubscribeTokens } from "@/db/schema";
+import { activities, contacts, trialAccounts, trialNurtureSteps, unsubscribeTokens } from "@/db/schema";
 import { and, eq, inArray } from "drizzle-orm";
 import { isDripSendingEnabled } from "@/lib/killSwitch";
 import { decide, render, Step, NURTURE_PRODUCTS, sequenceKey } from "@/lib/trialNurture/schedule";
 import { copyFor } from "@/lib/trialNurture/copy";
 import { missingLinkFields, assertSafeNurtureText } from "@/lib/trialNurture/links";
 import { trialNurtureBccAddress } from "@/lib/trialNurture/bcc";
-import { isExcludedWorkspace, isExcludedEmail, isStep5ManualWorkspace } from "@/lib/trialNurture/exclusions";
+import { isExcludedWorkspace, isExcludedEmail, isStep5ManualWorkspace, junkReason } from "@/lib/trialNurture/exclusions";
 import { sendEmail, NURTURE_FROM_EMAIL, NURTURE_REPLY_TO, LIST_UNSUBSCRIBE_MAILTO } from "@/lib/email";
 import { generateUnsubscribeToken } from "@/lib/tokens";
 import { listUnsubscribeHeaders, publicUnsubscribeUrl } from "@/lib/unsubscribe";
@@ -30,6 +30,11 @@ async function run(req: NextRequest) {
     // Excluded workspaces / contacts: never auto-send, never claim a step (no DB write).
     if (isExcludedWorkspace(t) || isExcludedEmail(c.email)) {
       console.log(JSON.stringify({ level: "info", msg: "trial_nurture_hold_excluded", trialAccountId: t.id }));
+      held++; continue;
+    }
+    const junk = junkReason(t, c);
+    if (junk) {
+      console.log(JSON.stringify({ level: "info", msg: "trial_nurture_hold_junk", trialAccountId: t.id, reason: junk }));
       held++; continue;
     }
     const done = await db.select({ step: trialNurtureSteps.step, status: trialNurtureSteps.status, createdAt: trialNurtureSteps.createdAt }).from(trialNurtureSteps).where(eq(trialNurtureSteps.trialAccountId, t.id));
@@ -71,8 +76,18 @@ async function run(req: NextRequest) {
       const headers = listUnsubscribeHeaders(publicUnsubscribeUrl(unsubToken), LIST_UNSUBSCRIBE_MAILTO);
       const r = await sendEmail({ to: c.email, subject: copy.subject, text,
         from: NURTURE_FROM_EMAIL, replyTo: NURTURE_REPLY_TO, bcc, headers,
-        tags: { nurture: key, step: String(d.step) } });
+        tags: { nurture: key, step: String(d.step) },
+        configurationSetName: process.env.SES_NURTURE_CONFIGURATION_SET || undefined });
       await db.update(trialNurtureSteps).set({ status: "sent", sesMessageId: r.id }).where(eq(trialNurtureSteps.id, claimed[0].id));
+      // Observability: one CRM activity per send (contact timeline). Never fails the send.
+      try {
+        await db.insert(activities).values({ contactId: c.id, type: "email", performedBy: "trial-nurture",
+          subject: `Trial nurture ${key} step ${d.step}: ${copy.subject}`.slice(0, 500),
+          body: `Auto-sent from ${NURTURE_FROM_EMAIL}. SES MessageId ${r.id ?? "n/a"}. app_id ${t.appId}.` });
+      } catch (e: any) {
+        console.log(JSON.stringify({ level: "warn", msg: "trial_nurture_activity_failed", trialAccountId: t.id, err: String(e?.name || "error") }));
+      }
+      console.log(JSON.stringify({ level: "info", msg: "trial_nurture_sent", trialAccountId: t.id, appId: t.appId, sequence: key, step: d.step, sesMessageId: r.id }));
       sent++;
     } catch (err: any) {
       await db.update(trialNurtureSteps).set({ status: "failed", reason: String(err?.name || "error").slice(0, 64) }).where(eq(trialNurtureSteps.id, claimed[0].id));
