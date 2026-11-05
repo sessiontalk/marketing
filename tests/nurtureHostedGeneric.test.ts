@@ -44,19 +44,24 @@ test("teams_phone behaviour unchanged", () => {
   assert.equal(copyFor("sessionpbx_trial", 1)!.final, true);
 });
 
-test("new sequences: 5 steps, held as drafts, content rules", () => {
+test("new sequences: 5 steps; softphone final, hosted held; content rules", () => {
   for (const key of ["hosted_pbx", "generic_softphone"] as const) {
     const seq = NURTURE_SEQUENCES[key];
     assert.deepEqual(seq.map((c) => c.step), [1, 2, 3, 4, 5]);
-    for (const c of seq) {
-      assert.equal(c.final, false, `${key} ${c.step} must stay held until approved`);
-      assert.match(c.body, /\n\nMaryam\nSessionTalk\nmaryam@sessiontalk\.co\.uk$/);
-      assert.doesNotMatch(c.body + c.subject, /white[- ]?label|private[- ]?label|3cx|yeastar|15[- ]minute|self[- ]host/i);
-      for (const u of c.body.match(/https?:\/\/[^\s)]+/g) || []) assert.match(u, /^https:\/\/cloud\.sessiontalk\.co\.uk(\/|$)/);
-      const text = render(c.body, "Jo", { accountName: "acme01" });
-      assert.doesNotMatch(text, /\{[a-z_]+\}/i);
-      assertSafeNurtureText(text, null);
-    }
+  }
+  for (const c of NURTURE_SEQUENCES.hosted_pbx) {
+    assert.equal(c.final, false, `hosted_pbx ${c.step} must stay held until approved`);
+    assert.match(c.body, /\n\nMaryam\nSessionTalk\nmaryam@sessiontalk\.co\.uk$/);
+    assert.doesNotMatch(c.body + c.subject, /white[- ]?label|private[- ]?label|3cx|yeastar|15[- ]minute|self[- ]host/i);
+    for (const u of c.body.match(/https?:\/\/[^\s)]+/g) || []) assert.match(u, /^https:\/\/cloud\.sessiontalk\.co\.uk(\/|$)/);
+    const text = render(c.body, "Jo", { accountName: "acme01" });
+    assert.doesNotMatch(text, /\{[a-z_]+\}/i);
+    assertSafeNurtureText(text, null);
+  }
+  for (const c of NURTURE_SEQUENCES.generic_softphone) {
+    assert.equal(c.final, true, `generic_softphone ${c.step} approved final=true`);
+    assert.ok(!!c.html, `generic_softphone ${c.step} html present`);
+    assert.doesNotMatch(c.body + (c.html || ""), /provider_directory_url|voip-providers|\{docs_url\}/);
   }
   assert.doesNotMatch(NURTURE_SEQUENCES.hosted_pbx.map((c) => c.body).join(), /\$/);
   assert.match(copyFor("generic_softphone", 5)!.body, /\$50\/month including 25 users, then \$2\/month for each extra user/);

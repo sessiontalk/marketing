@@ -19,7 +19,7 @@ test("generic softphone: all 5 steps fill every token incl. subject", () => {
   assert.match(s1, /https:\/\/cloud\.sessiontalk\.io\n/);
   assert.match(s1, /sessioncloud\/creating-first-app/);
   assert.match(s1, /sessioncloud\/provisioning/);
-  assert.ok(GENERIC_SOFTPHONE_COPY.every((c) => !c.final && !!c.html), "softphone held final=false, html present");
+  assert.ok(GENERIC_SOFTPHONE_COPY.every((c) => c.final && !!c.html), "softphone final=true, html present");
   assert.ok(GENERIC_SOFTPHONE_COPY.every((c) => !/provider_directory_url|\{docs_url\}|voip-providers/.test(c.body + (c.html || ""))));
 });
 test("step 5 without trialEndsAt holds and leaves raw token", () => {
