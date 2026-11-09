@@ -67,11 +67,13 @@ test("new sequences: 5 steps; softphone final, hosted held; content rules", () =
   assert.match(copyFor("generic_softphone", 5)!.body, /\$50\/month including 25 users, then \$2\/month for each extra user/);
 });
 
-test("link fields: new sequences need only accountName at step 5; no sip_domain", () => {
+test("link fields: softphone step 5 needs accountName + trial_ends_date; hosted needs accountName; no sip_domain", () => {
   for (const p of ["hosted_pbx", "generic_softphone"]) {
     assert.deepEqual(missingLinkFields(1, {}, p), []);
-    assert.deepEqual(missingLinkFields(5, {}, p), ["accountName"]);
   }
+  // Step 5 needing trial_ends_date is intended for generic_softphone only.
+  assert.deepEqual(missingLinkFields(5, {}, "generic_softphone"), ["accountName", "trial_ends_date"]);
+  assert.deepEqual(missingLinkFields(5, {}, "hosted_pbx"), ["accountName"]);
   assert.deepEqual(missingLinkFields(1, {}, "teams_phone"), ["sip_domain"]);
 });
 
