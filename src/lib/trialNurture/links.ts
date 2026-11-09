@@ -38,8 +38,55 @@ export function billingUrl(accountName: string): string {
   return `https://cloud.sessiontalk.io/billing/${encodeURIComponent(accountName)}`;
 }
 
+/**
+ * Generic Softphone has no hosted .sip workspace. No SessionCloud project deep link exists in this
+ * codebase, so {workspace_url} is the SessionCloud project home (HoM fallback, 5 Nov 2026).
+ */
+export const SOFTPHONE_WORKSPACE_URL = "https://cloud.sessiontalk.io";
+
+/**
+ * generic_softphone placeholder defaults — HoM pack html/sequence.json placeholder_defaults (5 Nov 2026).
+ * Old {docs_url} / {provider_directory_url} are no longer in the copy (provider directory dropped 07:25 GMT).
+ */
+export const SOFTPHONE_PLACEHOLDER_DEFAULTS: Record<string, string> = {
+  workspace_url: SOFTPHONE_WORKSPACE_URL,
+  getting_started_docs_url: "https://docs.sessiontalk.io/docs/sessioncloud/creating-first-app",
+  provisioning_docs_url: "https://docs.sessiontalk.io/docs/sessioncloud/provisioning",
+  qr_docs_url: "https://docs.sessiontalk.io/docs/sessioncloud/qr-codes/using-qr-codes-without-a-provisioning-server",
+  desktop_link_docs_url: "https://docs.sessiontalk.io/docs/sessioncloud/desktop-links",
+  desktop_setup_docs_url: "https://docs.sessiontalk.io/docs/desktop-softphones/external-provisioning",
+  push_docs_url: "https://docs.sessiontalk.io/docs/pushserver/troubleshooting",
+  push_overview_docs_url: "https://docs.sessiontalk.io/docs/pushserver/overview",
+  branding_docs_url: "https://docs.sessiontalk.io/docs/partners/branded-softphones",
+  misc_docs_url: "https://docs.sessiontalk.io/docs/sessioncloud/miscellaneous",
+  appstore_docs_url: "https://docs.sessiontalk.io/docs/sessioncloud/appstore-data",
+};
+
+/** Static link tokens for a product/step (empty for Teams/Hosted). Keys are {token} names. */
+export function stepLinkFields(_step: Step, product?: string | null): Record<string, string> & { workspaceUrl?: string } {
+  if (product !== "generic_softphone") return {};
+  return { ...SOFTPHONE_PLACEHOLDER_DEFAULTS, workspaceUrl: SOFTPHONE_WORKSPACE_URL };
+}
+
+/** en-GB human date, e.g. "5 November 2026" (UTC so it never shifts by a day). */
+export function formatTrialEndsDate(d: Date | string | null | undefined): string | null {
+  if (!d) return null;
+  const dt = d instanceof Date ? d : new Date(d);
+  if (isNaN(dt.getTime())) return null;
+  return dt.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
+}
+
+/** Matches any placeholder left after render. Sending text with this is never allowed. */
+export const UNFILLED_PLACEHOLDER_RE = /\{[a-zA-Z_]+\}/;
+
+export type LinkField = "sip_domain" | "accountName" | "workspace_url" | "trial_ends_date";
+
 /** Which stored fields a step's body needs for its CTA links. */
-export function requiredLinkFields(step: Step): Array<"sip_domain" | "accountName"> {
+export function requiredLinkFields(step: Step, product?: string): LinkField[] {
+  // generic_softphone: steps 1-3 link {workspace_url}; step 5 needs billing accountName + {trial_ends_date}.
+  if (product === "generic_softphone") return step === 5 ? ["accountName", "trial_ends_date"] : step <= 3 ? ["workspace_url"] : [];
+  // hosted_pbx copy links only to cloud.sessiontalk.co.uk: billing needs accountName.
+  if (product === "hosted_pbx") return step === 5 ? ["accountName"] : [];
   switch (step) {
     case 1:
     case 2:
@@ -54,10 +101,13 @@ export function requiredLinkFields(step: Step): Array<"sip_domain" | "accountNam
 
 export function missingLinkFields(
   step: Step,
-  fields: { sipDomain?: string | null; accountName?: string | null }
-): Array<"sip_domain" | "accountName"> {
-  const missing: Array<"sip_domain" | "accountName"> = [];
-  for (const f of requiredLinkFields(step)) {
+  fields: { sipDomain?: string | null; accountName?: string | null; trialEndsAt?: Date | string | null },
+  product?: string
+): LinkField[] {
+  const missing: LinkField[] = [];
+  for (const f of requiredLinkFields(step, product)) {
+    if (f === "workspace_url" && !(stepLinkFields(step, product).workspaceUrl || "").trim()) missing.push("workspace_url");
+    if (f === "trial_ends_date" && !formatTrialEndsDate(fields.trialEndsAt)) missing.push("trial_ends_date");
     if (f === "sip_domain" && !(fields.sipDomain || "").trim()) missing.push("sip_domain");
     if (f === "accountName" && !(fields.accountName || "").trim()) missing.push("accountName");
   }

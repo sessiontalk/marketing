@@ -117,12 +117,21 @@ test("nurture worker creates one unsubscribe token per send and passes List-Unsu
   const tokIdx = src.indexOf("generateUnsubscribeToken()");
   const insIdx = src.indexOf("db.insert(unsubscribeTokens)");
   assert.ok(tokIdx > 0 && insIdx > tokIdx && sendIdx > insIdx, "token generated and stored before send");
-  assert.match(src, /listUnsubscribeHeaders\(publicUnsubscribeUrl\(unsubToken\), LIST_UNSUBSCRIBE_MAILTO\)/);
+  // Source: per-send token -> publicUnsubscribeUrl(unsubToken) -> listUnsubscribeHeaders(..., LIST_UNSUBSCRIBE_MAILTO)
+  assert.match(src, /publicUnsubscribeUrl\(\s*unsubToken\s*\)/);
+  assert.match(src, /listUnsubscribeHeaders\([^,\n]+,\s*LIST_UNSUBSCRIBE_MAILTO\s*\)/);
   assert.match(src, /replyTo: NURTURE_REPLY_TO/); // replies still go to Maryam
   assert.match(src.slice(sendIdx, sendIdx + 300), /headers/);
   // Token insert is inside the try, after the step claim: a failure marks the step failed, never double-sends.
   assert.ok(insIdx > src.indexOf("const claimed"));
   assert.ok(insIdx > src.indexOf("try {"));
+
+  // Behavioural: same construction the worker uses embeds the token in List-Unsubscribe.
+  const unsubUrl = publicUnsubscribeUrl(TOKEN, {});
+  const headers = listUnsubscribeHeaders(unsubUrl, LIST_UNSUBSCRIBE_MAILTO);
+  assert.ok(headers["List-Unsubscribe"].includes(unsubUrl));
+  assert.match(headers["List-Unsubscribe"], new RegExp(`token=${TOKEN}`));
+  assert.equal(headers["List-Unsubscribe-Post"], "List-Unsubscribe=One-Click");
 });
 
 // ─── Admin test-send ────────────────────────────────────────────────

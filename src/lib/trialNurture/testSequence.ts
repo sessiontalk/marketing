@@ -1,6 +1,7 @@
-import { NURTURE_COPY } from "./copy";
+import { NURTURE_COPY, NURTURE_SEQUENCES } from "./copy";
 import { render, type Step } from "./schedule";
-import { assertSafeNurtureText } from "./links";
+import { assertSafeNurtureText, UNFILLED_PLACEHOLDER_RE } from "./links";
+import { renderNurtureHtml, escapeHtml, htmlHasUnfilledPlaceholder, htmlToVisibleText, htmlHrefs } from "./htmlTemplate";
 import { listUnsubscribeHeaders, publicUnsubscribeUrl } from "../unsubscribe";
 
 export const TEAMS_PRODUCTS = ["teams_phone", "teams_business"] as const;
@@ -26,6 +27,10 @@ export interface TestSequenceInput {
   steps?: Array<number | string>;
   /** true: use the exact production subject (no "[TEST n/5]" prefix), for placement tests. */
   productionSubject?: boolean;
+  /** Sequence to sample (default Teams "sessionpbx_trial"). */
+  sequence?: keyof typeof NURTURE_SEQUENCES;
+  /** Sample trial end (needed for generic_softphone step 5). Default: now + 2 days. */
+  trialEndsAt?: Date | string;
 }
 
 export function parseRecipients(to: string | string[] | null | undefined): string[] {
@@ -59,12 +64,21 @@ export function buildTestSequence(input: TestSequenceInput) {
   if (!SIP_RE.test(sipDomain)) throw new Error("invalid sample sip_domain");
   const accountName = (input.accountName || sipDomain.split(".")[0]).trim();
   const steps = parseSteps(input.steps);
-  return NURTURE_COPY.filter((c) => steps.includes(c.step)).map((c) => {
-    const text = render(c.body, input.firstName ?? "", { sipDomain, accountName });
-    if (/\{(sip_domain|accountName|first_name)\}/.test(text)) throw new Error(`unfilled placeholder in step ${c.step}`);
+  const seq = input.sequence ? NURTURE_SEQUENCES[input.sequence] : NURTURE_COPY;
+  const product = input.sequence === "generic_softphone" || input.sequence === "hosted_pbx" ? input.sequence : null;
+  const trialEndsAt = input.trialEndsAt ?? new Date(Date.now() + 2 * 24 * 3_600_000);
+  return seq.filter((c) => steps.includes(c.step)).map((c) => {
+    const fields = { sipDomain, accountName, trialEndsAt, product, step: c.step };
+    const text = render(c.body, input.firstName ?? "", fields);
+    const subj = render(c.subject, input.firstName ?? "", fields);
+    if (UNFILLED_PLACEHOLDER_RE.test(text) || UNFILLED_PLACEHOLDER_RE.test(subj)) throw new Error(`unfilled placeholder in step ${c.step}`);
     assertSafeNurtureText(text, sipDomain);
-    const subject = input.productionSubject ? c.subject : `[TEST ${c.step}/5] ${c.subject}`;
-    return { step: c.step, subject, text };
+    const subject = input.productionSubject ? subj : `[TEST ${c.step}/5] ${subj}`;
+    const htmlBody = c.html ? render(c.html, escapeHtml(input.firstName ?? ""), fields) : undefined;
+    const html = renderNurtureHtml({ textBody: text, unsubscribeUrl: publicUnsubscribeUrl(TEST_UNSUBSCRIBE_TOKEN), subject: subj, htmlBody });
+    if (htmlHasUnfilledPlaceholder(html)) throw new Error(`unfilled placeholder in html step ${c.step}`);
+    assertSafeNurtureText(htmlToVisibleText(html) + "\n" + htmlHrefs(html), sipDomain);
+    return { step: c.step, subject, text, html };
   });
 }
 
