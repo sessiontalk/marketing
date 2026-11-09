@@ -153,7 +153,8 @@ test("parseSteps: default all, subset sorted/deduped, rejects out of range", () 
   assert.deepEqual(parseSteps([]), [1, 2, 3, 4, 5]);
   assert.deepEqual(parseSteps([1]), [1]);
   assert.deepEqual(parseSteps(["3", 1, 3]), [1, 3]);
-  for (const bad of [[0], [6], ["x"], [1.5]]) assert.throws(() => parseSteps(bad as any));
+  assert.deepEqual(parseSteps([6], "generic_softphone"), [6]);
+  for (const bad of [[0], [7], ["x"], [1.5]]) assert.throws(() => parseSteps(bad as any));
   assert.throws(() => parseSteps("1" as any));
 });
 

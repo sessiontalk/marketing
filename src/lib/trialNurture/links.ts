@@ -49,17 +49,28 @@ export const SOFTPHONE_WORKSPACE_URL = "https://cloud.sessiontalk.io";
  * Old {docs_url} / {provider_directory_url} are no longer in the copy (provider directory dropped 07:25 GMT).
  */
 export const SOFTPHONE_PLACEHOLDER_DEFAULTS: Record<string, string> = {
-  workspace_url: SOFTPHONE_WORKSPACE_URL,
-  getting_started_docs_url: "https://docs.sessiontalk.io/docs/sessioncloud/creating-first-app",
-  provisioning_docs_url: "https://docs.sessiontalk.io/docs/sessioncloud/provisioning",
-  qr_docs_url: "https://docs.sessiontalk.io/docs/sessioncloud/qr-codes/using-qr-codes-without-a-provisioning-server",
-  desktop_link_docs_url: "https://docs.sessiontalk.io/docs/sessioncloud/desktop-links",
-  desktop_setup_docs_url: "https://docs.sessiontalk.io/docs/desktop-softphones/external-provisioning",
-  push_docs_url: "https://docs.sessiontalk.io/docs/pushserver/troubleshooting",
-  push_overview_docs_url: "https://docs.sessiontalk.io/docs/pushserver/overview",
-  branding_docs_url: "https://docs.sessiontalk.io/docs/partners/branded-softphones",
-  misc_docs_url: "https://docs.sessiontalk.io/docs/sessioncloud/miscellaneous",
-  appstore_docs_url: "https://docs.sessiontalk.io/docs/sessioncloud/appstore-data",
+  "workspace_url": "https://cloud.sessiontalk.io",
+  "getting_started_docs_url": "https://docs.sessiontalk.io/docs/sessioncloud/creating-first-app",
+  "provisioning_docs_url": "https://docs.sessiontalk.io/docs/sessioncloud/provisioning",
+  "qr_docs_url": "https://docs.sessiontalk.io/docs/sessioncloud/qr-codes/using-qr-codes-without-a-provisioning-server",
+  "desktop_link_docs_url": "https://docs.sessiontalk.io/docs/sessioncloud/desktop-links",
+  "desktop_setup_docs_url": "https://docs.sessiontalk.io/docs/desktop-softphones/external-provisioning",
+  "push_docs_url": "https://docs.sessiontalk.io/docs/pushserver/troubleshooting",
+  "push_overview_docs_url": "https://docs.sessiontalk.io/docs/pushserver/overview",
+  "branding_docs_url": "https://docs.sessiontalk.io/docs/partners/branded-softphones",
+  "misc_docs_url": "https://docs.sessiontalk.io/docs/sessioncloud/miscellaneous",
+  "appstore_docs_url": "https://docs.sessiontalk.io/docs/sessioncloud/appstore-data",
+  "sms_docs_url": "https://docs.sessiontalk.io/docs/sessioncloud/messaging/overview",
+  "sms_providers_docs_url": "https://docs.sessiontalk.io/docs/sessioncloud/messaging/providers",
+  "sms_troubleshooting_docs_url": "https://docs.sessiontalk.io/docs/sessioncloud/messaging/troubleshooting",
+  "sip_im_docs_url": "https://docs.sessiontalk.io/docs/mobile-softphones/messaging/enable-messaging",
+  "xmpp_docs_url": "https://docs.sessiontalk.io/docs/mobile-softphones/messaging/setting-up-im",
+  "rooms_docs_url": "https://docs.sessiontalk.io/docs/mobile-softphones/messaging/rooms",
+  "messaging_settings_docs_url": "https://docs.sessiontalk.io/docs/sessioncloud/xmpp",
+  "sip_im_desktop_docs_url": "https://docs.sessiontalk.io/docs/desktop-softphones/messaging/enable-messaging",
+  "sending_im_docs_url": "https://docs.sessiontalk.io/docs/mobile-softphones/messaging/sending-im-messages",
+  "provider_sms_docs_url": "https://docs.sessiontalk.io/docs/mobile-softphones/messaging/provider-sms",
+  "customer_hosted_docs_url": "https://docs.sessiontalk.io/docs/sessioncloud/messaging/customer-hosted"
 };
 
 /** Static link tokens for a product/step (empty for Teams/Hosted). Keys are {token} names. */
@@ -83,10 +94,15 @@ export type LinkField = "sip_domain" | "accountName" | "workspace_url" | "trial_
 
 /** Which stored fields a step's body needs for its CTA links. */
 export function requiredLinkFields(step: Step, product?: string): LinkField[] {
-  // generic_softphone: steps 1-3 link {workspace_url}; step 5 needs billing accountName + {trial_ends_date}.
+  // generic_softphone: steps 1-4 use workspace defaults; step 6 needs billing accountName + {trial_ends_date}.
   // signup_finish_setup: COPY_GAP bodies must not use project tokens; hold is via final=false.
   if (product === "signup_finish_setup") return [];
-  if (product === "generic_softphone") return step === 5 ? ["accountName", "trial_ends_date"] : step <= 3 ? ["workspace_url"] : [];
+  if (product === "generic_softphone") {
+    // v2: steps 1-4 (and check-in 5) use workspace defaults; step 6 needs billing + trial end date.
+    if (step === 6) return ["accountName", "trial_ends_date"];
+    if (step <= 4) return ["workspace_url"];
+    return [];
+  }
   // hosted_pbx copy links only to cloud.sessiontalk.co.uk: billing needs accountName.
   if (product === "hosted_pbx") return step === 5 ? ["accountName"] : [];
   switch (step) {
@@ -97,6 +113,7 @@ export function requiredLinkFields(step: Step, product?: string): LinkField[] {
     case 5:
       return ["accountName"];
     case 4:
+    case 6:
       return [];
   }
 }

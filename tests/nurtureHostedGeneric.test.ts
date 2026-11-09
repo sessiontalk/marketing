@@ -36,7 +36,8 @@ test("generic_softphone skip rules", () => {
   assert.equal(skipReason(2, base("generic_softphone", { softphoneFirstLoginAt: t0 }), t0), "softphone_login_done");
   assert.equal(skipReason(3, base("generic_softphone", { carrierConnectedAt: t0 }), t0), null);
   assert.equal(skipReason(1, base("generic_softphone", { extensionCount: 1 }), t0), "has_extension");
-  assert.equal(skipReason(5, base("generic_softphone", { paymentMethodAddedAt: t0 }), t0), "card_or_paid");
+  assert.equal(skipReason(4, base("generic_softphone"), t0), null); // messaging: no skip
+  assert.equal(skipReason(6, base("generic_softphone", { paymentMethodAddedAt: t0 }), t0), "card_or_paid");
 });
 
 test("teams_phone behaviour unchanged", () => {
@@ -44,11 +45,9 @@ test("teams_phone behaviour unchanged", () => {
   assert.equal(copyFor("sessionpbx_trial", 1)!.final, true);
 });
 
-test("new sequences: 5 steps; softphone final, hosted held; content rules", () => {
-  for (const key of ["hosted_pbx", "generic_softphone"] as const) {
-    const seq = NURTURE_SEQUENCES[key];
-    assert.deepEqual(seq.map((c) => c.step), [1, 2, 3, 4, 5]);
-  }
+test("new sequences: hosted 5 steps, softphone 6; softphone final, hosted held; content rules", () => {
+  assert.deepEqual(NURTURE_SEQUENCES.hosted_pbx.map((c) => c.step), [1, 2, 3, 4, 5]);
+  assert.deepEqual(NURTURE_SEQUENCES.generic_softphone.map((c) => c.step), [1, 2, 3, 4, 5, 6]);
   for (const c of NURTURE_SEQUENCES.hosted_pbx) {
     assert.equal(c.final, false, `hosted_pbx ${c.step} must stay held until approved`);
     assert.match(c.body, /\n\nMaryam\nSessionTalk\nmaryam@sessiontalk\.co\.uk$/);
@@ -64,15 +63,15 @@ test("new sequences: 5 steps; softphone final, hosted held; content rules", () =
     assert.doesNotMatch(c.body + (c.html || ""), /provider_directory_url|voip-providers|\{docs_url\}/);
   }
   assert.doesNotMatch(NURTURE_SEQUENCES.hosted_pbx.map((c) => c.body).join(), /\$/);
-  assert.match(copyFor("generic_softphone", 5)!.body, /\$50\/month including 25 users, then \$2\/month for each extra user/);
+  assert.match(copyFor("generic_softphone", 6)!.body, /\$50\/month including 25 users, then \$2\/month for each extra user/);
 });
 
-test("link fields: softphone step 5 needs accountName + trial_ends_date; hosted needs accountName; no sip_domain", () => {
+test("link fields: softphone step 6 needs accountName + trial_ends_date; hosted step 5 needs accountName; no sip_domain", () => {
   for (const p of ["hosted_pbx", "generic_softphone"]) {
     assert.deepEqual(missingLinkFields(1, {}, p), []);
   }
-  // Step 5 needing trial_ends_date is intended for generic_softphone only.
-  assert.deepEqual(missingLinkFields(5, {}, "generic_softphone"), ["accountName", "trial_ends_date"]);
+  assert.deepEqual(missingLinkFields(6, {}, "generic_softphone"), ["accountName", "trial_ends_date"]);
+  assert.deepEqual(missingLinkFields(5, {}, "generic_softphone"), []);
   assert.deepEqual(missingLinkFields(5, {}, "hosted_pbx"), ["accountName"]);
   assert.deepEqual(missingLinkFields(1, {}, "teams_phone"), ["sip_domain"]);
 });

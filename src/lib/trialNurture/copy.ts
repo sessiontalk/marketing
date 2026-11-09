@@ -3,7 +3,7 @@
 // Placeholders: {first_name} (fallback "there"), {sip_domain} (tenant .sip host as-is),
 // {accountName} (billing only). Never build {slug}.{region}.sessiontalk.io (no .sip) — that
 // wildcard resolves to cloudtest. Hold send if a required link field is missing.
-export interface NurtureCopy { step: 1|2|3|4|5; file: string; subject: string; body: string; final: boolean; /** Optional HoM branded HTML (same {placeholders}; {{unsubscribe_url}} for unsubscribe). Absent => text is wrapped. */ html?: string; /** Hidden inbox preview text (softphone shell preheader). */ preheader?: string; /** CTA button label; href comes from signup CTA URL / placeholders. */ ctaLabel?: string }
+export interface NurtureCopy { step: 1|2|3|4|5|6; file: string; subject: string; body: string; final: boolean; /** Optional HoM branded HTML (same {placeholders}; {{unsubscribe_url}} for unsubscribe). Absent => text is wrapped. */ html?: string; /** Hidden inbox preview text (softphone shell preheader). */ preheader?: string; /** CTA button label; href comes from signup CTA URL / placeholders. */ ctaLabel?: string }
 export const NURTURE_COPY: NurtureCopy[] = [
   {
     "file": "01-no-extension-1h.md",
@@ -51,6 +51,6 @@ export const NURTURE_SEQUENCES: Record<"sessionpbx_trial" | "hosted_pbx" | "gene
   generic_softphone: GENERIC_SOFTPHONE_COPY,
   signup_finish_setup: SIGNUP_FINISH_SETUP_COPY,
 };
-export function copyFor(key: keyof typeof NURTURE_SEQUENCES, step: 1|2|3|4|5): NurtureCopy | undefined {
+export function copyFor(key: keyof typeof NURTURE_SEQUENCES, step: 1|2|3|4|5|6): NurtureCopy | undefined {
   return NURTURE_SEQUENCES[key].find((c) => c.step === step);
 }
