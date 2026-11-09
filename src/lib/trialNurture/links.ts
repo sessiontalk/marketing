@@ -84,6 +84,8 @@ export type LinkField = "sip_domain" | "accountName" | "workspace_url" | "trial_
 /** Which stored fields a step's body needs for its CTA links. */
 export function requiredLinkFields(step: Step, product?: string): LinkField[] {
   // generic_softphone: steps 1-3 link {workspace_url}; step 5 needs billing accountName + {trial_ends_date}.
+  // signup_finish_setup: COPY_GAP bodies must not use project tokens; hold is via final=false.
+  if (product === "signup_finish_setup") return [];
   if (product === "generic_softphone") return step === 5 ? ["accountName", "trial_ends_date"] : step <= 3 ? ["workspace_url"] : [];
   // hosted_pbx copy links only to cloud.sessiontalk.co.uk: billing needs accountName.
   if (product === "hosted_pbx") return step === 5 ? ["accountName"] : [];

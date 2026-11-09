@@ -5,13 +5,13 @@ import { workspaceHost, stepLinkFields, formatTrialEndsDate } from "./links";
  * Source of truth for rules: sales/sessionpbx/nurture-sequence/README.md
  */
 export type Step = 1 | 2 | 3 | 4 | 5;
-export type Product = "teams_phone" | "teams_business" | "hosted" | "hosted_pbx" | "generic_softphone";
+export type Product = "teams_phone" | "teams_business" | "hosted" | "hosted_pbx" | "generic_softphone" | "signup_finish_setup";
 /** Products enrolled in a nurture sequence (sequence key = sequenceKey(product)). */
-export const NURTURE_PRODUCTS = ["teams_phone", "teams_business", "hosted_pbx", "generic_softphone"] as const;
-export type SequenceKey = "sessionpbx_trial" | "hosted_pbx" | "generic_softphone";
+export const NURTURE_PRODUCTS = ["teams_phone", "teams_business", "hosted_pbx", "generic_softphone", "signup_finish_setup"] as const;
+export type SequenceKey = "sessionpbx_trial" | "hosted_pbx" | "generic_softphone" | "signup_finish_setup";
 export function sequenceKey(product: string): SequenceKey | null {
   if (product === "teams_phone" || product === "teams_business") return "sessionpbx_trial";
-  if (product === "hosted_pbx" || product === "generic_softphone") return product;
+  if (product === "hosted_pbx" || product === "generic_softphone" || product === "signup_finish_setup") return product;
   return null;
 }
 
@@ -46,6 +46,14 @@ const H = 3_600_000;
 const D = 24 * H;
 
 export function dueAt(step: Step, s: TrialState): Date | null {
+  // Signup finish-setup: no project yet. Clock from enrolment / trialStartedAt (= signup time).
+  if (s.product === "signup_finish_setup") {
+    switch (step) {
+      case 1: return new Date(s.enrolledAt.getTime() + H);
+      case 2: return new Date(s.enrolledAt.getTime() + 2 * D);
+      default: return null; // only 2 COPY_GAP steps
+    }
+  }
   switch (step) {
     case 1: return s.projectCreatedAt ? new Date(s.projectCreatedAt.getTime() + H) : null;
     case 2: return new Date(s.trialStartedAt.getTime() + D);
@@ -56,6 +64,7 @@ export function dueAt(step: Step, s: TrialState): Date | null {
 }
 
 export function skipReason(step: Step, s: TrialState, now: Date): string | null {
+  if (s.product === "signup_finish_setup") return null; // COPY_GAP steps: hold via final=false, not skip
   switch (step) {
     case 1: return s.extensionCount > 0 ? "has_extension" : null;
     case 2:
