@@ -49,9 +49,9 @@ export function dueAt(step: Step, s: TrialState): Date | null {
   // Signup finish-setup: no project yet. Clock from enrolment / trialStartedAt (= signup time).
   if (s.product === "signup_finish_setup") {
     switch (step) {
-      case 1: return new Date(s.enrolledAt.getTime() + H);
-      case 2: return new Date(s.enrolledAt.getTime() + 2 * D);
-      default: return null; // only 2 COPY_GAP steps
+      case 1: return s.enrolledAt; // draft: right after signup
+      case 2: return new Date(s.enrolledAt.getTime() + 2 * D); // ~2 days later
+      default: return null; // only 2 steps
     }
   }
   switch (step) {
@@ -64,7 +64,11 @@ export function dueAt(step: Step, s: TrialState): Date | null {
 }
 
 export function skipReason(step: Step, s: TrialState, now: Date): string | null {
-  if (s.product === "signup_finish_setup") return null; // COPY_GAP steps: hold via final=false, not skip
+  // Signup finish-setup: skip remaining steps once a project / trial exists.
+  if (s.product === "signup_finish_setup") {
+    if (s.projectCreatedAt) return "has_project";
+    return null;
+  }
   switch (step) {
     case 1: return s.extensionCount > 0 ? "has_extension" : null;
     case 2:

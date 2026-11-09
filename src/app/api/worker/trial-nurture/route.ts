@@ -8,7 +8,7 @@ import { copyFor } from "@/lib/trialNurture/copy";
 import { missingLinkFields, assertSafeNurtureText, UNFILLED_PLACEHOLDER_RE } from "@/lib/trialNurture/links";
 import { trialNurtureBccAddress } from "@/lib/trialNurture/bcc";
 import { isExcludedWorkspace, isExcludedEmail, isStep5ManualWorkspace, junkReason } from "@/lib/trialNurture/exclusions";
-import { sendEmail, NURTURE_FROM_EMAIL, NURTURE_REPLY_TO, LIST_UNSUBSCRIBE_MAILTO } from "@/lib/email";
+import { sendEmail, NURTURE_FROM_EMAIL, SIGNUP_NURTURE_FROM_EMAIL, NURTURE_REPLY_TO, LIST_UNSUBSCRIBE_MAILTO } from "@/lib/email";
 import { generateUnsubscribeToken } from "@/lib/tokens";
 import { renderNurtureHtml, escapeHtml, htmlHasUnfilledPlaceholder, htmlToVisibleText, htmlHrefs } from "@/lib/trialNurture/htmlTemplate";
 import { listUnsubscribeHeaders, publicUnsubscribeUrl } from "@/lib/unsubscribe";
@@ -98,8 +98,9 @@ async function run(req: NextRequest) {
         held++; continue;
       }
       assertSafeNurtureText(htmlToVisibleText(html) + "\n" + htmlHrefs(html), t.sipDomain);
+      const fromEmail = key === "signup_finish_setup" ? SIGNUP_NURTURE_FROM_EMAIL : NURTURE_FROM_EMAIL;
       const r = await sendEmail({ to: c.email, subject, text, html,
-        from: NURTURE_FROM_EMAIL, replyTo: NURTURE_REPLY_TO, bcc, headers,
+        from: fromEmail, replyTo: NURTURE_REPLY_TO, bcc, headers,
         tags: { nurture: key, step: String(d.step) },
         configurationSetName: process.env.SES_NURTURE_CONFIGURATION_SET || undefined });
       await db.update(trialNurtureSteps).set({ status: "sent", sesMessageId: r.id }).where(eq(trialNurtureSteps.id, claimed[0].id));
@@ -107,7 +108,7 @@ async function run(req: NextRequest) {
       try {
         await db.insert(activities).values({ contactId: c.id, type: "email", performedBy: "trial-nurture",
           subject: `Trial nurture ${key} step ${d.step}: ${subject}`.slice(0, 500),
-          body: `Auto-sent from ${NURTURE_FROM_EMAIL}. SES MessageId ${r.id ?? "n/a"}. app_id ${t.appId}.` });
+          body: `Auto-sent from ${fromEmail}. SES MessageId ${r.id ?? "n/a"}. app_id ${t.appId}.` });
       } catch (e: any) {
         console.log(JSON.stringify({ level: "warn", msg: "trial_nurture_activity_failed", trialAccountId: t.id, err: String(e?.name || "error") }));
       }

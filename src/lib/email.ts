@@ -36,6 +36,8 @@ export interface SendEmailParams {
 
 // Trial nurture sender: Maryam personally. Never sales@ or chief@.
 export const NURTURE_FROM_EMAIL = "Maryam Fatima <maryam@sessiontalk.co.uk>";
+/** Signup finish-setup (HoM draft 2026-11-09): Maryam <maryam@…>, not Maryam Fatima. */
+export const SIGNUP_NURTURE_FROM_EMAIL = "Maryam <maryam@sessiontalk.co.uk>";
 export const NURTURE_REPLY_TO = "maryam@sessiontalk.co.uk";
 
 /**
