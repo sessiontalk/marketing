@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { activities, contacts, trialAccounts, trialNurtureSteps, unsubscribeTokens } from "@/db/schema";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { isDripSendingEnabled } from "@/lib/killSwitch";
 import { decide, render, renderSubject, Step, NURTURE_PRODUCTS, sequenceKey } from "@/lib/trialNurture/schedule";
 import { copyFor } from "@/lib/trialNurture/copy";
@@ -12,6 +12,7 @@ import { sendEmail, NURTURE_FROM_EMAIL, SIGNUP_NURTURE_FROM_EMAIL, NURTURE_REPLY
 import { generateUnsubscribeToken } from "@/lib/tokens";
 import { renderNurtureHtml, escapeHtml, htmlHasUnfilledPlaceholder, htmlToVisibleText, htmlHrefs } from "@/lib/trialNurture/htmlTemplate";
 import { listUnsubscribeHeaders, publicUnsubscribeUrl } from "@/lib/unsubscribe";
+import { softphoneDbNeedsRenumber, SOFTPHONE_SEQ_MARKER_STEP, SOFTPHONE_SEQ_MARKER_REASON } from "@/lib/trialNurture/softphoneStepMap";
 
 const BATCH = 50;
 
@@ -38,7 +39,25 @@ async function run(req: NextRequest) {
       console.log(JSON.stringify({ level: "info", msg: "trial_nurture_hold_junk", trialAccountId: t.id, reason: junk }));
       held++; continue;
     }
-    const done = await db.select({ step: trialNurtureSteps.step, status: trialNurtureSteps.status, createdAt: trialNurtureSteps.createdAt }).from(trialNurtureSteps).where(eq(trialNurtureSteps.trialAccountId, t.id));
+    let done = await db.select({ step: trialNurtureSteps.step, status: trialNurtureSteps.status, createdAt: trialNurtureSteps.createdAt }).from(trialNurtureSteps).where(eq(trialNurtureSteps.trialAccountId, t.id));
+    // Softphone v2: lazy stamp + renumber legacy indices before decide/claim (idempotent).
+    if (t.product === "generic_softphone") {
+      const rawSteps = done.map((r) => r.step);
+      if (!rawSteps.includes(SOFTPHONE_SEQ_MARKER_STEP)) {
+        await db.insert(trialNurtureSteps).values({
+          trialAccountId: t.id, step: SOFTPHONE_SEQ_MARKER_STEP, status: "skipped", reason: SOFTPHONE_SEQ_MARKER_REASON,
+        }).onConflictDoNothing();
+      }
+      if (softphoneDbNeedsRenumber(rawSteps)) {
+        // 5→6 then 4→5 via temp offsets to satisfy unique (trial, step)
+        await db.execute(sql`UPDATE trial_nurture_steps SET step = step + 100 WHERE trial_account_id = ${t.id} AND step IN (4, 5)`);
+        await db.execute(sql`UPDATE trial_nurture_steps SET step = 6 WHERE trial_account_id = ${t.id} AND step = 105`);
+        await db.execute(sql`UPDATE trial_nurture_steps SET step = 5 WHERE trial_account_id = ${t.id} AND step = 104`);
+        done = await db.select({ step: trialNurtureSteps.step, status: trialNurtureSteps.status, createdAt: trialNurtureSteps.createdAt }).from(trialNurtureSteps).where(eq(trialNurtureSteps.trialAccountId, t.id));
+      } else if (!rawSteps.includes(SOFTPHONE_SEQ_MARKER_STEP)) {
+        done = await db.select({ step: trialNurtureSteps.step, status: trialNurtureSteps.status, createdAt: trialNurtureSteps.createdAt }).from(trialNurtureSteps).where(eq(trialNurtureSteps.trialAccountId, t.id));
+      }
+    }
     const sentTimes = done.filter((r) => r.status === "sent" || r.status === "sending").map((r) => (r.createdAt ? new Date(r.createdAt).getTime() : 0));
     const lastSentAt = sentTimes.length ? new Date(Math.max(...sentTimes)) : null;
     let d = decide({ ...t, product: t.product as any, planStatus: t.planStatus as any, unsubscribed: !!c.unsubscribed, sentSteps: done.map((r) => r.step as Step), lastSentAt }, now);

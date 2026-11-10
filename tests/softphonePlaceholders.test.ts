@@ -7,7 +7,7 @@ import { NURTURE_COPY } from "../src/lib/trialNurture/copy";
 import { buildTestSequence } from "../src/lib/trialNurture/testSequence";
 
 const ends = new Date("2026-11-05T12:00:00Z");
-test("generic softphone: all 5 steps fill every token incl. subject", () => {
+test("generic softphone: all 6 steps fill every token incl. subject", () => {
   for (const c of GENERIC_SOFTPHONE_COPY) {
     const f = { accountName: "acme", trialEndsAt: ends, product: "generic_softphone", step: c.step };
     const text = render(c.body, "Sam", f), subj = renderSubject(c.subject, "Sam", f);
@@ -22,11 +22,11 @@ test("generic softphone: all 5 steps fill every token incl. subject", () => {
   assert.ok(GENERIC_SOFTPHONE_COPY.every((c) => c.final && !!c.html), "softphone final=true, html present");
   assert.ok(GENERIC_SOFTPHONE_COPY.every((c) => !/provider_directory_url|\{docs_url\}|voip-providers/.test(c.body + (c.html || ""))));
 });
-test("step 5 without trialEndsAt holds and leaves raw token", () => {
-  const c = GENERIC_SOFTPHONE_COPY.find((x) => x.step === 5)!;
-  assert.deepEqual(missingLinkFields(5, { accountName: "acme" }, "generic_softphone"), ["trial_ends_date"]);
-  assert.deepEqual(missingLinkFields(5, {}, "generic_softphone"), ["accountName", "trial_ends_date"]);
-  assert.ok(UNFILLED_PLACEHOLDER_RE.test(renderSubject(c.subject, "Sam", { product: "generic_softphone", step: 5 })));
+test("step 6 without trialEndsAt holds and leaves raw token", () => {
+  const c = GENERIC_SOFTPHONE_COPY.find((x) => x.step === 6)!;
+  assert.deepEqual(missingLinkFields(6, { accountName: "acme" }, "generic_softphone"), ["trial_ends_date"]);
+  assert.deepEqual(missingLinkFields(6, {}, "generic_softphone"), ["accountName", "trial_ends_date"]);
+  assert.ok(UNFILLED_PLACEHOLDER_RE.test(renderSubject(c.subject, "Sam", { product: "generic_softphone", step: 6 })));
 });
 test("hosted/teams unchanged", () => {
   assert.deepEqual(missingLinkFields(5, { accountName: "a" }, "hosted_pbx"), []);
@@ -38,6 +38,7 @@ test("hosted/teams unchanged", () => {
 });
 test("test-sequence softphone sample passes", () => {
   const out = buildTestSequence({ to: "a@b.co", sipDomain: "acme.us.sip.sessiontalk.io", sequence: "generic_softphone", trialEndsAt: ends });
-  assert.equal(out.length, 5);
-  assert.equal(out[4].subject, "[TEST 5/5] Your softphone trial ends on 5 November 2026");
+  assert.equal(out.length, 6);
+  assert.equal(out[5].subject, "[TEST 6/6] Your softphone trial ends on 5 November 2026");
+  assert.equal(out[3].subject, "[TEST 4/6] Add messaging to your softphone");
 });
