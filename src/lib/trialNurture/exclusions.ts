@@ -68,9 +68,10 @@ export function looksRandom(s: string | null | undefined): boolean {
 
 export function junkReason(
   t: { sipDomain?: string | null; accountName?: string | null },
-  c: { email?: string | null; firstname?: string | null; emailVerified?: boolean | null }
+  c: { email?: string | null; firstname?: string | null; emailVerified?: boolean | null },
+  opts?: { allowUnverified?: boolean },
 ): string | null {
-  if (!c.emailVerified) return "unverified_email";
+  if (!opts?.allowUnverified && !c.emailVerified) return "unverified_email";
   const slug = (t.sipDomain || "").trim().split(".")[0];
   if ([slug, t.accountName || ""].some((v) => ABUSE_WORKSPACE.test(v.trim()))) return "abuse_cluster_workspace";
   if (ABUSE_EMAIL.test((c.email || "").trim())) return "abuse_cluster_email";

@@ -5,12 +5,18 @@ import { verifyWebhookSignature } from "@/lib/auth";
 import { TrialEvent } from "@/lib/trialNurture/events";
 import { assignBccInternal } from "@/lib/trialNurture/bcc";
 import { isDripSendingEnabled } from "@/lib/killSwitch";
-import { eq, sql, count, and } from "drizzle-orm";
+import { eq, sql, count, and, inArray } from "drizzle-orm";
 import {
   isSignupAppId,
   productFromTrialStarted,
   productStepsAlreadyCoveredBySignup,
+  SIGNUP_PRODUCT,
+  VERIFY_REMINDER_PRODUCT,
+  SIGNUP_SEQUENCE_PRODUCTS,
+  signupAppId,
+  canEnrolSignupNurture,
 } from "@/lib/trialNurture/signupEnrolment";
+import { isExcludedEmail, junkReason } from "@/lib/trialNurture/exclusions";
 
 /**
  * SessionCloud → CRM activity events for NEW SessionPBX (Teams/Hosted) trials.
@@ -48,7 +54,60 @@ export async function POST(req: NextRequest) {
 
   if (e.event === "email.verified") {
     await db.update(contacts).set({ emailVerified: true, updatedAt: new Date() }).where(eq(contacts.id, contact.id));
-    return NextResponse.json({ ok: true });
+
+    // Enrol or promote into signup_finish_setup so the welcome drip starts once they verify.
+    // Never downgrade a product trial. If a verify-reminder row exists, rewrite it.
+    const existing = await db.select().from(trialAccounts).where(eq(trialAccounts.contactId, contact.id));
+    const active = existing.filter((r) => r.planStatus === "trial" || r.planStatus === "paid");
+    const reminder = active.find((r) => r.product === VERIFY_REMINDER_PRODUCT);
+    const finish = active.find((r) => r.product === SIGNUP_PRODUCT);
+    const productTrial = active.find((r) => !SIGNUP_SEQUENCE_PRODUCTS.includes(r.product as typeof SIGNUP_PRODUCT));
+
+    if (productTrial) {
+      return NextResponse.json({ ok: true, enrolment: "has_product_trial" });
+    }
+    if (finish) {
+      return NextResponse.json({ ok: true, enrolment: "already_finish_setup" });
+    }
+    if (reminder) {
+      await db.update(trialAccounts).set({
+        product: SIGNUP_PRODUCT,
+        updatedAt: new Date(),
+      }).where(eq(trialAccounts.id, reminder.id));
+      await db.delete(trialNurtureSteps).where(eq(trialNurtureSteps.trialAccountId, reminder.id));
+      return NextResponse.json({ ok: true, enrolment: "upgraded_from_reminder" });
+    }
+
+    const objectId = e.objectId || contact.objectId;
+    const email = contact.email;
+    const junk = junkReason(
+      { accountName: contact.firstname || null },
+      { email, firstname: contact.firstname, emailVerified: true },
+    );
+    const gate = canEnrolSignupNurture({
+      email,
+      emailVerified: true,
+      unsubscribed: !!contact.unsubscribed,
+      isExcludedEmail: isExcludedEmail(email),
+      junkReason: junk,
+      alreadyHasActiveTrial: false,
+    });
+    if (!gate.ok) return NextResponse.json({ ok: true, enrolment: "skipped", reason: gate.reason });
+    if (!objectId) return NextResponse.json({ ok: true, enrolment: "skipped", reason: "missing_objectId" });
+    const at = new Date();
+    const [row] = await db.insert(trialAccounts).values({
+      contactId: contact.id,
+      appId: signupAppId(String(objectId)),
+      product: SIGNUP_PRODUCT,
+      trialStartedAt: at,
+      enrolledAt: at,
+      planStatus: "trial",
+    }).onConflictDoNothing().returning();
+    return NextResponse.json({
+      ok: true,
+      enrolment: row ? "enrolled_finish_setup" : "duplicate_app_id",
+      trialAccountId: row?.id,
+    });
   }
   if (!e.app_id) return NextResponse.json({ error: "app_id required" }, { status: 400 });
 
@@ -64,7 +123,7 @@ export async function POST(req: NextRequest) {
 
     // Prefer upgrading an existing signup_finish_setup row for this contact.
     const signupRows = await db.select().from(trialAccounts)
-      .where(and(eq(trialAccounts.contactId, contact.id), eq(trialAccounts.product, "signup_finish_setup")));
+      .where(and(eq(trialAccounts.contactId, contact.id), inArray(trialAccounts.product, [...SIGNUP_SEQUENCE_PRODUCTS])));
     const signupRow = signupRows.find((r) => isSignupAppId(r.appId)) || signupRows[0];
 
     if (signupRow) {

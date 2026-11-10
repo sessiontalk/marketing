@@ -90,13 +90,14 @@ export function formatTrialEndsDate(d: Date | string | null | undefined): string
 /** Matches any placeholder left after render. Sending text with this is never allowed. */
 export const UNFILLED_PLACEHOLDER_RE = /\{[a-zA-Z_]+\}/;
 
-export type LinkField = "sip_domain" | "accountName" | "workspace_url" | "trial_ends_date";
+export type LinkField = "sip_domain" | "accountName" | "workspace_url" | "trial_ends_date" | "verify_url";
 
 /** Which stored fields a step's body needs for its CTA links. */
 export function requiredLinkFields(step: Step, product?: string): LinkField[] {
   // generic_softphone: steps 1-4 use workspace defaults; step 6 needs billing accountName + {trial_ends_date}.
   // signup_finish_setup: COPY_GAP bodies must not use project tokens; hold is via final=false.
   if (product === "signup_finish_setup") return [];
+  if (product === "signup_verify_reminder") return ["verify_url"];
   if (product === "generic_softphone") {
     // v2: steps 1-4 (and check-in 5) use workspace defaults; step 6 needs billing + trial end date.
     if (step === 6) return ["accountName", "trial_ends_date"];
@@ -120,7 +121,7 @@ export function requiredLinkFields(step: Step, product?: string): LinkField[] {
 
 export function missingLinkFields(
   step: Step,
-  fields: { sipDomain?: string | null; accountName?: string | null; trialEndsAt?: Date | string | null },
+  fields: { sipDomain?: string | null; accountName?: string | null; trialEndsAt?: Date | string | null; verifyUrl?: string | null },
   product?: string
 ): LinkField[] {
   const missing: LinkField[] = [];
@@ -129,6 +130,7 @@ export function missingLinkFields(
     if (f === "trial_ends_date" && !formatTrialEndsDate(fields.trialEndsAt)) missing.push("trial_ends_date");
     if (f === "sip_domain" && !(fields.sipDomain || "").trim()) missing.push("sip_domain");
     if (f === "accountName" && !(fields.accountName || "").trim()) missing.push("accountName");
+    if (f === "verify_url" && !(fields.verifyUrl || "").trim()) missing.push("verify_url");
   }
   return missing;
 }

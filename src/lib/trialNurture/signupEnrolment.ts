@@ -13,6 +13,8 @@ import type { Product } from "./schedule";
 import { sequenceKey } from "./schedule";
 
 export const SIGNUP_PRODUCT: Product = "signup_finish_setup";
+export const VERIFY_REMINDER_PRODUCT: Product = "signup_verify_reminder";
+export const SIGNUP_SEQUENCE_PRODUCTS: readonly Product[] = [SIGNUP_PRODUCT, VERIFY_REMINDER_PRODUCT];
 
 export function signupAppId(objectId: string): string {
   return `signup:${objectId}`;
@@ -65,5 +67,21 @@ export function canEnrolSignupNurture(opts: {
   if (opts.junkReason) return { ok: false, reason: opts.junkReason };
   if (opts.alreadyHasActiveTrial) return { ok: false, reason: "already_enrolled" };
   if (!sequenceKey(SIGNUP_PRODUCT)) return { ok: false, reason: "no_sequence" };
+  return { ok: true };
+}
+
+/** Enrol an unverified signup into the one-shot verify reminder (not finish_setup). */
+export function canEnrolVerifyReminder(opts: {
+  email: string;
+  unsubscribed: boolean;
+  isExcludedEmail: boolean;
+  junkReason: string | null;
+  alreadyHasActiveTrial: boolean;
+}): { ok: true } | { ok: false; reason: string } {
+  if (opts.isExcludedEmail) return { ok: false, reason: "excluded_email" };
+  if (opts.unsubscribed) return { ok: false, reason: "unsubscribed" };
+  if (opts.junkReason) return { ok: false, reason: opts.junkReason };
+  if (opts.alreadyHasActiveTrial) return { ok: false, reason: "already_enrolled" };
+  if (!sequenceKey(VERIFY_REMINDER_PRODUCT)) return { ok: false, reason: "no_sequence" };
   return { ok: true };
 }

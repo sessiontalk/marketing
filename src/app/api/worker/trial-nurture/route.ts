@@ -8,6 +8,9 @@ import { copyFor } from "@/lib/trialNurture/copy";
 import { missingLinkFields, assertSafeNurtureText, UNFILLED_PLACEHOLDER_RE } from "@/lib/trialNurture/links";
 import { trialNurtureBccAddress } from "@/lib/trialNurture/bcc";
 import { isExcludedWorkspace, isExcludedEmail, isStep5ManualWorkspace, junkReason } from "@/lib/trialNurture/exclusions";
+import { emailDeliverabilityReason } from "@/lib/trialNurture/mailQuality";
+import { buildVerifyUrl } from "@/lib/trialNurture/confirmEmailLink";
+import { SIGNUP_PRODUCT, VERIFY_REMINDER_PRODUCT } from "@/lib/trialNurture/signupEnrolment";
 import { sendEmail, NURTURE_FROM_EMAIL, SIGNUP_NURTURE_FROM_EMAIL, NURTURE_REPLY_TO, LIST_UNSUBSCRIBE_MAILTO } from "@/lib/email";
 import { generateUnsubscribeToken } from "@/lib/tokens";
 import { renderNurtureHtml, escapeHtml, htmlHasUnfilledPlaceholder, htmlToVisibleText, htmlHrefs } from "@/lib/trialNurture/htmlTemplate";
@@ -28,15 +31,30 @@ async function run(req: NextRequest) {
     .where(and(eq(trialAccounts.planStatus, "trial"), inArray(trialAccounts.product, [...NURTURE_PRODUCTS]))).limit(BATCH);
   let sent = 0, skipped = 0, failed = 0, held = 0;
 
-  for (const { t, c } of rows) {
+  for (const rec of rows) {
+    let t = rec.t;
+    const c = rec.c;
     // Excluded workspaces / contacts: never auto-send, never claim a step (no DB write).
     if (isExcludedWorkspace(t) || isExcludedEmail(c.email)) {
       console.log(JSON.stringify({ level: "info", msg: "trial_nurture_hold_excluded", trialAccountId: t.id }));
       held++; continue;
     }
-    const junk = junkReason(t, c);
+    // If they verified after being enrolled in the reminder, promote to finish_setup
+    // (clears reminder steps so step 1 of the welcome drip is due immediately).
+    if (t.product === VERIFY_REMINDER_PRODUCT && c.emailVerified) {
+      await db.update(trialAccounts).set({ product: SIGNUP_PRODUCT, updatedAt: new Date() }).where(eq(trialAccounts.id, t.id));
+      await db.delete(trialNurtureSteps).where(eq(trialNurtureSteps.trialAccountId, t.id));
+      t = { ...t, product: SIGNUP_PRODUCT };
+    }
+    const allowUnverified = t.product === VERIFY_REMINDER_PRODUCT;
+    const junk = junkReason(t, c, { allowUnverified });
     if (junk) {
       console.log(JSON.stringify({ level: "info", msg: "trial_nurture_hold_junk", trialAccountId: t.id, reason: junk }));
+      held++; continue;
+    }
+    const deliverability = await emailDeliverabilityReason(c.email);
+    if (deliverability) {
+      console.log(JSON.stringify({ level: "info", msg: "trial_nurture_hold_junk", trialAccountId: t.id, reason: deliverability }));
       held++; continue;
     }
     let done = await db.select({ step: trialNurtureSteps.step, status: trialNurtureSteps.status, createdAt: trialNurtureSteps.createdAt }).from(trialNurtureSteps).where(eq(trialNurtureSteps.trialAccountId, t.id));
@@ -60,7 +78,7 @@ async function run(req: NextRequest) {
     }
     const sentTimes = done.filter((r) => r.status === "sent" || r.status === "sending").map((r) => (r.createdAt ? new Date(r.createdAt).getTime() : 0));
     const lastSentAt = sentTimes.length ? new Date(Math.max(...sentTimes)) : null;
-    let d = decide({ ...t, product: t.product as any, planStatus: t.planStatus as any, unsubscribed: !!c.unsubscribed, sentSteps: done.map((r) => r.step as Step), lastSentAt }, now);
+    let d = decide({ ...t, product: t.product as any, planStatus: t.planStatus as any, unsubscribed: !!c.unsubscribed, emailVerified: !!c.emailVerified, sentSteps: done.map((r) => r.step as Step), lastSentAt }, now);
     if (d.action === "wait" || d.action === "stop") continue;
     // Sales sends email 05 manually for these tenants: record step 5 as skipped, never send it.
     if (d.action === "send" && d.step === 5 && isStep5ManualWorkspace(t)) d = { step: 5, action: "skip", reason: "manual_sales" };
@@ -69,8 +87,15 @@ async function run(req: NextRequest) {
     // Copy not final (e.g. hosted_pbx / generic_softphone drafts): hold, don't send or claim.
     if (d.action === "send" && !copy.final) { held++; continue; }
     // Hold (don't send a broken link) when sip_domain / accountName needed by this step is missing.
+    const verifyUrl = (d.action === "send" && t.product === VERIFY_REMINDER_PRODUCT)
+      ? buildVerifyUrl({
+          objectId: c.objectId,
+          secret: process.env.WEBHOOK_SECRET,
+          origin: process.env.SESSIONCLOUD_PUBLIC_ORIGIN,
+        })
+      : null;
     if (d.action === "send") {
-      const missing = missingLinkFields(d.step, { sipDomain: t.sipDomain, accountName: t.accountName, trialEndsAt: t.trialEndsAt }, t.product);
+      const missing = missingLinkFields(d.step, { sipDomain: t.sipDomain, accountName: t.accountName, trialEndsAt: t.trialEndsAt, verifyUrl }, t.product);
       if (missing.length) {
         console.log(JSON.stringify({
           level: "info", msg: "trial_nurture_hold_missing_link_field",
@@ -81,7 +106,7 @@ async function run(req: NextRequest) {
       }
     }
     // Render before claiming so a leftover {token} holds (unclaimed, retried next run) instead of sending raw braces.
-    const fields = { accountName: t.accountName, sipDomain: t.sipDomain, trialEndsAt: t.trialEndsAt, product: t.product, step: d.step };
+    const fields = { accountName: t.accountName, sipDomain: t.sipDomain, trialEndsAt: t.trialEndsAt, product: t.product, step: d.step, verifyUrl };
     const text = d.action === "send" ? render(copy.body, c.firstname, fields) : "";
     const subject = d.action === "send" ? renderSubject(copy.subject, c.firstname, fields) : copy.subject;
     if (d.action === "send" && (UNFILLED_PLACEHOLDER_RE.test(text) || UNFILLED_PLACEHOLDER_RE.test(subject))) {
@@ -117,7 +142,7 @@ async function run(req: NextRequest) {
         held++; continue;
       }
       assertSafeNurtureText(htmlToVisibleText(html) + "\n" + htmlHrefs(html), t.sipDomain);
-      const fromEmail = key === "signup_finish_setup" ? SIGNUP_NURTURE_FROM_EMAIL : NURTURE_FROM_EMAIL;
+      const fromEmail = (key === "signup_finish_setup" || key === "signup_verify_reminder") ? SIGNUP_NURTURE_FROM_EMAIL : NURTURE_FROM_EMAIL;
       const r = await sendEmail({ to: c.email, subject, text, html,
         from: fromEmail, replyTo: NURTURE_REPLY_TO, bcc, headers,
         tags: { nurture: key, step: String(d.step) },
