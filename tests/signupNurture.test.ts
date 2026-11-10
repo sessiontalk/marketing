@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { decide, render, sequenceKey, NURTURE_PRODUCTS, TrialState } from "../src/lib/trialNurture/schedule";
 import { missingLinkFields, UNFILLED_PLACEHOLDER_RE } from "../src/lib/trialNurture/links";
 import { NURTURE_SEQUENCES, copyFor } from "../src/lib/trialNurture/copy";
@@ -44,7 +44,13 @@ const signupState = (o: Partial<TrialState> = {}): TrialState => ({
   ...o,
 });
 
-const draft = readFileSync(SIGNUP_FINISH_SETUP_DRAFT_PATH, "utf8");
+function loadDraft(primary: string, fallback: string): string {
+  for (const p of [primary, fallback]) {
+    if (existsSync(p)) return readFileSync(p, "utf8");
+  }
+  throw new Error("draft pack not found: " + primary);
+}
+const draft = loadDraft(SIGNUP_FINISH_SETUP_DRAFT_PATH, "drips/signup-finish-setup/2026-11-09-DRAFT.md");
 
 test("verbatim copy matches HoM draft (subject, preheader, CTA label)", () => {
   assert.match(draft, /Subject: Welcome to SessionTalk, let's set up your first project/);
@@ -101,7 +107,7 @@ test("sender is Maryam <maryam@sessiontalk.co.uk> for signup (softphone keeps Ma
   assert.equal(NURTURE_FROM_EMAIL, "Maryam Fatima <maryam@sessiontalk.co.uk>");
   const worker = readFileSync("src/app/api/worker/trial-nurture/route.ts", "utf8");
   assert.match(worker, /SIGNUP_NURTURE_FROM_EMAIL/);
-  assert.match(worker, /key === "signup_finish_setup" \? SIGNUP_NURTURE_FROM_EMAIL/);
+  assert.match(worker, /key === "signup_finish_setup" \|\| key === "signup_verify_reminder"/);
 });
 
 test("signup_finish_setup sequence key; no literal project tokens after render", () => {

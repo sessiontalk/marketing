@@ -20,7 +20,7 @@ test("sequence key per product; new products are enrolled", () => {
   assert.equal(sequenceKey("hosted_pbx"), "hosted_pbx");
   assert.equal(sequenceKey("generic_softphone"), "generic_softphone");
   assert.equal(sequenceKey("hosted"), null);
-  assert.deepEqual([...NURTURE_PRODUCTS].sort(), ["generic_softphone", "hosted_pbx", "signup_finish_setup", "teams_business", "teams_phone"]);
+  assert.deepEqual([...NURTURE_PRODUCTS].sort(), ["generic_softphone", "hosted_pbx", "signup_finish_setup", "signup_verify_reminder", "teams_business", "teams_phone"]);
   assert.deepEqual(decide(base("hosted"), t0), { action: "stop", reason: "no_sequence" });
 });
 

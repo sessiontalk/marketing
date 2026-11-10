@@ -44,12 +44,14 @@ export const NURTURE_COPY: NurtureCopy[] = [
 
 import { HOSTED_PBX_COPY, GENERIC_SOFTPHONE_COPY } from "./copyHostedGeneric";
 import { SIGNUP_FINISH_SETUP_COPY } from "./copySignupFinishSetup";
+import { SIGNUP_VERIFY_REMINDER_COPY } from "./copySignupVerifyReminder";
 /** Copy per sequence key. */
-export const NURTURE_SEQUENCES: Record<"sessionpbx_trial" | "hosted_pbx" | "generic_softphone" | "signup_finish_setup", NurtureCopy[]> = {
+export const NURTURE_SEQUENCES: Record<"sessionpbx_trial" | "hosted_pbx" | "generic_softphone" | "signup_finish_setup" | "signup_verify_reminder", NurtureCopy[]> = {
   sessionpbx_trial: NURTURE_COPY,
   hosted_pbx: HOSTED_PBX_COPY,
   generic_softphone: GENERIC_SOFTPHONE_COPY,
   signup_finish_setup: SIGNUP_FINISH_SETUP_COPY,
+  signup_verify_reminder: SIGNUP_VERIFY_REMINDER_COPY,
 };
 export function copyFor(key: keyof typeof NURTURE_SEQUENCES, step: 1|2|3|4|5|6): NurtureCopy | undefined {
   return NURTURE_SEQUENCES[key].find((c) => c.step === step);

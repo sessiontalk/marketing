@@ -5,10 +5,13 @@ import { verifyWebhookSignature } from "@/lib/auth";
 import { eq, and } from "drizzle-orm";
 import { RETIRED_SEQUENCE_NAMES } from "@/lib/killSwitch";
 import { isExcludedEmail, junkReason } from "@/lib/trialNurture/exclusions";
+import { emailDeliverabilityReason } from "@/lib/trialNurture/mailQuality";
 import {
   SIGNUP_PRODUCT,
+  VERIFY_REMINDER_PRODUCT,
   signupAppId,
   canEnrolSignupNurture,
+  canEnrolVerifyReminder,
 } from "@/lib/trialNurture/signupEnrolment";
 
 /**
@@ -126,22 +129,30 @@ export async function POST(req: NextRequest) {
     if (enrollment) enrollments.push(enrollment);
   }
 
-  // Trial-nurture signup_finish_setup enrolment (project-less).
-  let nurture: { enrolled: boolean; reason?: string; trialAccountId?: string } = { enrolled: false };
+  // Enrol verified signups into signup_finish_setup; unverified signups that
+  // pass junk / mail-quality checks into the one-shot signup_verify_reminder.
+  let nurture: { enrolled: boolean; reason?: string; trialAccountId?: string; product?: string } = { enrolled: false };
   const existingTrials = await db.select().from(trialAccounts).where(eq(trialAccounts.contactId, contact.id)).limit(5);
   const already = existingTrials.some((t) => t.planStatus === "trial" || t.planStatus === "paid");
+  const verifiedNow = verified || !!contact.emailVerified;
   const junk = junkReason(
     { accountName: firstname || null },
-    { email: emailNorm, firstname, emailVerified: verified || !!contact.emailVerified },
+    { email: emailNorm, firstname, emailVerified: verifiedNow },
+    { allowUnverified: !verifiedNow },
   );
-  const gate = canEnrolSignupNurture({
+  const deliverability = await emailDeliverabilityReason(emailNorm);
+  const quality = junk || deliverability;
+  const shared = {
     email: emailNorm,
-    emailVerified: verified || !!contact.emailVerified,
     unsubscribed: !!contact.unsubscribed,
     isExcludedEmail: isExcludedEmail(emailNorm),
-    junkReason: junk,
+    junkReason: quality,
     alreadyHasActiveTrial: already,
-  });
+  };
+  const gate = verifiedNow
+    ? canEnrolSignupNurture({ ...shared, emailVerified: verifiedNow })
+    : canEnrolVerifyReminder(shared);
+  const product = verifiedNow ? SIGNUP_PRODUCT : VERIFY_REMINDER_PRODUCT;
 
   if (!gate.ok) {
     nurture = { enrolled: false, reason: gate.reason };
@@ -155,7 +166,7 @@ export async function POST(req: NextRequest) {
       .values({
         contactId: contact.id,
         appId,
-        product: SIGNUP_PRODUCT,
+        product,
         trialStartedAt: at,
         enrolledAt: at,
         planStatus: "trial",
@@ -163,7 +174,7 @@ export async function POST(req: NextRequest) {
       .onConflictDoNothing()
       .returning();
     nurture = row
-      ? { enrolled: true, trialAccountId: row.id }
+      ? { enrolled: true, trialAccountId: row.id, product }
       : { enrolled: false, reason: "duplicate_app_id" };
   }
 
