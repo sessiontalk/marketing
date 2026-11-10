@@ -1,44 +1,73 @@
 /**
- * Shared contract with sessioncloudlive server/src/services/confirmEmail.ts.
- * Marketing mints {{verify_url}} at send time. SessionCloud holds WEBHOOK_SECRET
- * and verifies the HMAC; the CRM never stores or embeds a raw verify token.
+ * Mint {{verify_url}} from SessionCloud at send time.
+ * Marketing signs the request with WEBHOOK_SECRET (same HMAC-SHA256(raw body)
+ * scheme as the inbound webhooks, plus a unix `ts` replay window). SessionCloud
+ * signs the returned link with CONFIRM_EMAIL_SECRET, which marketing must not hold.
  *
- * URL: {origin}/parse/confirm-email?uid={objectId}&exp={unixSeconds}&sig={hmacHex}
- * MAC: hex(HMAC-SHA256(WEBHOOK_SECRET, "confirm-email:{objectId}:{exp}"))
- * TTL: 7 days from send. POST on the SessionCloud page issues a fresh confirmation
- * (never reuses the original signup token, works if that token has expired).
+ * POST {SESSIONCLOUD_API_URL}/api/v1/marketing/confirm-email-url
+ * Body: { objectId, ts }  Header: x-webhook-signature
+ * 200 { url, exp } | 409 already verified | other failure → hold
  */
 import { createHmac } from "node:crypto";
 
-export const CONFIRM_EMAIL_PATH = "/parse/confirm-email";
-export const CONFIRM_EMAIL_TTL_SECONDS = 7 * 24 * 60 * 60;
-export const DEFAULT_SESSIONCLOUD_ORIGIN = "https://cloud.sessiontalk.io";
+export const CONFIRM_EMAIL_MINT_PATH = "/api/v1/marketing/confirm-email-url";
+export const DEFAULT_SESSIONCLOUD_API_URL = "https://cloud.sessiontalk.io";
+export const WEBHOOK_REPLAY_WINDOW_SECONDS = 5 * 60;
+export const MINT_TIMEOUT_MS = 5000;
 
-export function confirmEmailMac(userId: string, exp: number, secret: string): string {
-  return createHmac("sha256", secret).update(`confirm-email:${userId}:${exp}`).digest("hex");
+export function marketingWebhookSignature(rawBody: string, secret: string): string {
+  return createHmac("sha256", secret).update(rawBody).digest("hex");
 }
 
-export function confirmEmailUrl(origin: string, userId: string, exp: number, secret: string): string {
-  const base = origin.replace(/\/$/, "");
-  const sig = confirmEmailMac(userId, exp, secret);
-  const q = new URLSearchParams({ uid: userId, exp: String(exp), sig });
-  return `${base}${CONFIRM_EMAIL_PATH}?${q.toString()}`;
+export type MintResult =
+  | { ok: true; url: string; exp: number }
+  | { ok: false; reason: "already_verified" }
+  | { ok: false; reason: "verify_url_unavailable" };
+
+export function sessionCloudApiUrl(apiBase?: string | null): string {
+  const base = (apiBase || process.env.SESSIONCLOUD_API_URL || DEFAULT_SESSIONCLOUD_API_URL).trim();
+  return base.replace(/\/+$/, "").replace(/\/parse$/, "");
 }
 
-/**
- * Build {{verify_url}} at send time. Returns null if objectId or WEBHOOK_SECRET is
- * missing — the worker must hold rather than render a literal {{verify_url}}.
- */
-export function buildVerifyUrl(opts: {
+export async function mintConfirmEmailUrl(opts: {
   objectId?: string | null;
   secret?: string | null;
-  origin?: string | null;
+  apiBase?: string | null;
   now?: Date;
-}): string | null {
-  const uid = (opts.objectId || "").trim();
+  fetchImpl?: typeof fetch;
+  timeoutMs?: number;
+}): Promise<MintResult> {
+  const objectId = (opts.objectId || "").trim();
   const secret = (opts.secret || "").trim();
-  if (!uid || !secret) return null;
-  const origin = (opts.origin || "").trim() || DEFAULT_SESSIONCLOUD_ORIGIN;
-  const exp = Math.floor((opts.now ?? new Date()).getTime() / 1000) + CONFIRM_EMAIL_TTL_SECONDS;
-  return confirmEmailUrl(origin, uid, exp, secret);
+  if (!objectId || !secret) return { ok: false, reason: "verify_url_unavailable" };
+
+  const ts = Math.floor((opts.now ?? new Date()).getTime() / 1000);
+  const raw = JSON.stringify({ objectId, ts });
+  const sig = marketingWebhookSignature(raw, secret);
+  const url = `${sessionCloudApiUrl(opts.apiBase)}${CONFIRM_EMAIL_MINT_PATH}`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), opts.timeoutMs ?? MINT_TIMEOUT_MS);
+  try {
+    const fetchImpl = opts.fetchImpl ?? fetch;
+    const res = await fetchImpl(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-webhook-signature": sig,
+      },
+      body: raw,
+      signal: controller.signal,
+    });
+    if (res.status === 409) return { ok: false, reason: "already_verified" };
+    if (!res.ok) return { ok: false, reason: "verify_url_unavailable" };
+    const json = (await res.json()) as { url?: unknown; exp?: unknown };
+    if (typeof json.url !== "string" || !json.url.trim()) {
+      return { ok: false, reason: "verify_url_unavailable" };
+    }
+    return { ok: true, url: json.url.trim(), exp: Number(json.exp) };
+  } catch {
+    return { ok: false, reason: "verify_url_unavailable" };
+  } finally {
+    clearTimeout(timer);
+  }
 }

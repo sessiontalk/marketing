@@ -9,7 +9,7 @@ import { missingLinkFields, assertSafeNurtureText, UNFILLED_PLACEHOLDER_RE } fro
 import { trialNurtureBccAddress } from "@/lib/trialNurture/bcc";
 import { isExcludedWorkspace, isExcludedEmail, isStep5ManualWorkspace, junkReason } from "@/lib/trialNurture/exclusions";
 import { emailDeliverabilityReason } from "@/lib/trialNurture/mailQuality";
-import { buildVerifyUrl } from "@/lib/trialNurture/confirmEmailLink";
+import { mintConfirmEmailUrl } from "@/lib/trialNurture/confirmEmailLink";
 import { SIGNUP_PRODUCT, VERIFY_REMINDER_PRODUCT } from "@/lib/trialNurture/signupEnrolment";
 import { sendEmail, NURTURE_FROM_EMAIL, SIGNUP_NURTURE_FROM_EMAIL, NURTURE_REPLY_TO, LIST_UNSUBSCRIBE_MAILTO } from "@/lib/email";
 import { generateUnsubscribeToken } from "@/lib/tokens";
@@ -87,19 +87,39 @@ async function run(req: NextRequest) {
     // Copy not final (e.g. hosted_pbx / generic_softphone drafts): hold, don't send or claim.
     if (d.action === "send" && !copy.final) { held++; continue; }
     // Hold (don't send a broken link) when sip_domain / accountName needed by this step is missing.
-    const verifyUrl = (d.action === "send" && t.product === VERIFY_REMINDER_PRODUCT)
-      ? buildVerifyUrl({
-          objectId: c.objectId,
-          secret: process.env.WEBHOOK_SECRET,
-          origin: process.env.SESSIONCLOUD_PUBLIC_ORIGIN,
-        })
-      : null;
+    let verifyUrl: string | null = null;
+    if (d.action === "send" && t.product === VERIFY_REMINDER_PRODUCT) {
+      const minted = await mintConfirmEmailUrl({
+        objectId: c.objectId,
+        secret: process.env.WEBHOOK_SECRET,
+        apiBase: process.env.SESSIONCLOUD_API_URL,
+      });
+      if (!minted.ok && minted.reason === "already_verified") {
+        await db.update(trialAccounts).set({ product: SIGNUP_PRODUCT, updatedAt: new Date() }).where(eq(trialAccounts.id, t.id));
+        await db.delete(trialNurtureSteps).where(eq(trialNurtureSteps.trialAccountId, t.id));
+        t = { ...t, product: SIGNUP_PRODUCT };
+        done = [];
+        d = decide({ ...t, product: t.product as any, planStatus: t.planStatus as any, unsubscribed: !!c.unsubscribed, emailVerified: true, sentSteps: [], lastSentAt }, now);
+        if (d.action === "wait" || d.action === "stop") continue;
+      } else if (!minted.ok) {
+        console.log(JSON.stringify({
+          level: "info", msg: "trial_nurture_hold_verify_url",
+          reason: "verify_url_unavailable",
+          trialAccountId: t.id, appId: t.appId, step: d.step,
+        }));
+        held++;
+        continue;
+      } else {
+        verifyUrl = minted.url;
+      }
+    }
     if (d.action === "send") {
       const missing = missingLinkFields(d.step, { sipDomain: t.sipDomain, accountName: t.accountName, trialEndsAt: t.trialEndsAt, verifyUrl }, t.product);
       if (missing.length) {
         console.log(JSON.stringify({
           level: "info", msg: "trial_nurture_hold_missing_link_field",
           trialAccountId: t.id, appId: t.appId, step: d.step, missing,
+          reason: missing.includes("verify_url") ? "verify_url_unavailable" : undefined,
         }));
         held++;
         continue;

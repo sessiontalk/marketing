@@ -18,12 +18,10 @@ import {
 } from "../src/lib/trialNurture/copySignupVerifyReminder";
 import { SIGNUP_NURTURE_FROM_EMAIL } from "../src/lib/email";
 import {
-  confirmEmailMac,
-  confirmEmailUrl,
-  buildVerifyUrl,
-  CONFIRM_EMAIL_PATH,
-  CONFIRM_EMAIL_TTL_SECONDS,
-  DEFAULT_SESSIONCLOUD_ORIGIN,
+  mintConfirmEmailUrl,
+  marketingWebhookSignature,
+  CONFIRM_EMAIL_MINT_PATH,
+  DEFAULT_SESSIONCLOUD_API_URL,
 } from "../src/lib/trialNurture/confirmEmailLink";
 import {
   emailDeliverabilityReason,
@@ -125,7 +123,10 @@ test("sequence registration, sender, and HTML shell", () => {
   assert.match(worker, /signup_verify_reminder/);
   assert.match(worker, /SIGNUP_NURTURE_FROM_EMAIL/);
   assert.match(worker, /allowUnverified/);
-  assert.match(worker, /buildVerifyUrl/);
+  assert.match(worker, /mintConfirmEmailUrl/);
+  assert.match(worker, /verify_url_unavailable/);
+  assert.doesNotMatch(worker, /CONFIRM_EMAIL_SECRET/);
+  assert.doesNotMatch(worker, /buildVerifyUrl/);
   const wrapped = renderNurtureHtml({
     textBody: render(SIGNUP_VERIFY_REMINDER_COPY[0].body, "Jo", { verifyUrl: VERIFY }),
     htmlBody: render(SIGNUP_VERIFY_REMINDER_COPY[0].html!, "Jo", { verifyUrl: VERIFY }),
@@ -166,21 +167,38 @@ test("enrolment gates: reminder allows unverified; finish_setup does not; junk s
   assert.equal(junkReason({ accountName: "Nvkcjnf" }, { email: "z@tranzan.si", firstname: "Nvkcjnf", emailVerified: false }, { allowUnverified: true }), "random_name");
 });
 
-test("{{verify_url}} is an HMAC confirm-email link, never a raw token, and is held when inputs are missing", () => {
+test("worker mints {{verify_url}} from SessionCloud; holds or promotes on mint failure", async () => {
   const secret = "test-webhook-secret-for-confirm-email";
   const uid = "pC8Dwf94lT";
-  const exp = 1_800_000_000;
-  const url = confirmEmailUrl(DEFAULT_SESSIONCLOUD_ORIGIN, uid, exp, secret);
-  assert.equal(url.startsWith(`https://cloud.sessiontalk.io${CONFIRM_EMAIL_PATH}?`), true);
-  assert.match(url, /uid=pC8Dwf94lT/);
-  assert.match(url, /exp=1800000000/);
-  assert.match(url, new RegExp(`sig=${confirmEmailMac(uid, exp, secret)}`));
-  assert.doesNotMatch(url, /token=/);
-  assert.equal(CONFIRM_EMAIL_TTL_SECONDS, 7 * 24 * 60 * 60);
-  assert.equal(buildVerifyUrl({ objectId: uid, secret, now: new Date(0) })?.includes("uid=pC8Dwf94lT"), true);
-  assert.equal(buildVerifyUrl({ objectId: null, secret }), null);
-  assert.equal(buildVerifyUrl({ objectId: uid, secret: "" }), null);
-  assert.equal(buildVerifyUrl({ objectId: uid, secret: "   " }), null);
+  const mintedUrl = "https://cloud.sessiontalk.io/parse/confirm-email?uid=pC8Dwf94lT&exp=1800000000&sig=abcd";
+  const calls: Array<{ url: string; init: RequestInit }> = [];
+  const okFetch: typeof fetch = (async (url, init) => {
+    calls.push({ url: String(url), init: init || {} });
+    return new Response(JSON.stringify({ url: mintedUrl, exp: 1800000000 }), { status: 200, headers: { "Content-Type": "application/json" } });
+  }) as typeof fetch;
+
+  const ok = await mintConfirmEmailUrl({ objectId: uid, secret, fetchImpl: okFetch, now: new Date(1_700_000_000_000) });
+  assert.deepEqual(ok, { ok: true, url: mintedUrl, exp: 1800000000 });
+  assert.equal(calls[0].url, DEFAULT_SESSIONCLOUD_API_URL + CONFIRM_EMAIL_MINT_PATH);
+  const raw = String(calls[0].init.body);
+  const body = JSON.parse(raw);
+  assert.equal(body.objectId, uid);
+  assert.equal(body.ts, 1_700_000_000);
+  assert.equal((calls[0].init.headers as any)["x-webhook-signature"], marketingWebhookSignature(raw, secret));
+  assert.doesNotMatch(raw, /CONFIRM_EMAIL_SECRET/);
+  assert.doesNotMatch(mintedUrl, /token=/);
+
+  const alreadyFetch: typeof fetch = (async () => new Response(JSON.stringify({ error: "Already verified" }), { status: 409 })) as typeof fetch;
+  assert.deepEqual(await mintConfirmEmailUrl({ objectId: uid, secret, fetchImpl: alreadyFetch }), { ok: false, reason: "already_verified" });
+
+  const missingUrl: typeof fetch = (async () => new Response(JSON.stringify({ exp: 1 }), { status: 200, headers: { "Content-Type": "application/json" } })) as typeof fetch;
+  const boom: typeof fetch = (async () => { throw new Error("network"); }) as typeof fetch;
+  const notFound: typeof fetch = (async () => new Response(JSON.stringify({ error: "Not found" }), { status: 404 })) as typeof fetch;
+  assert.deepEqual(await mintConfirmEmailUrl({ objectId: uid, secret, fetchImpl: missingUrl }), { ok: false, reason: "verify_url_unavailable" });
+  assert.deepEqual(await mintConfirmEmailUrl({ objectId: uid, secret, fetchImpl: boom }), { ok: false, reason: "verify_url_unavailable" });
+  assert.deepEqual(await mintConfirmEmailUrl({ objectId: uid, secret, fetchImpl: notFound }), { ok: false, reason: "verify_url_unavailable" });
+  assert.deepEqual(await mintConfirmEmailUrl({ objectId: null, secret, fetchImpl: okFetch }), { ok: false, reason: "verify_url_unavailable" });
+  assert.deepEqual(await mintConfirmEmailUrl({ objectId: uid, secret: "", fetchImpl: okFetch }), { ok: false, reason: "verify_url_unavailable" });
 });
 
 test("mail quality: carrier gateways, disposable domains, MX fail-safe; att.net and o2.co.uk are not gateways", async () => {
