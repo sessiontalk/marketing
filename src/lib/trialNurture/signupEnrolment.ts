@@ -11,6 +11,15 @@
 import { SIGNUP_TO_PRODUCT_STEP_MAP } from "./copySignupFinishSetup";
 import type { Product } from "./schedule";
 import { sequenceKey } from "./schedule";
+import { signupHistoryReason } from "./signupGuards";
+export {
+  SIGNUP_NURTURE_MAX_ACCOUNT_AGE_DAYS,
+  isTrialRowActive,
+  isTrialRowStale,
+  contactTrialHistory,
+  signupCreatedAtOf,
+  signupAccountTooOld,
+} from "./signupGuards";
 
 export const SIGNUP_PRODUCT: Product = "signup_finish_setup";
 export const VERIFY_REMINDER_PRODUCT: Product = "signup_verify_reminder";
@@ -60,12 +69,28 @@ export function canEnrolSignupNurture(opts: {
   isExcludedEmail: boolean;
   junkReason: string | null;
   alreadyHasActiveTrial: boolean;
+  /** Any non-signup trial_accounts row for the contact, whatever its plan_status. */
+  hasPriorProductTrial?: boolean;
+  /** Any trial_accounts row for the contact with project_created_at set. */
+  hasProject?: boolean;
+  /** contacts.original_created_at (SessionCloud signup createdAt), else contacts.created_at; see signupCreatedAtOf. */
+  signupCreatedAt?: Date | null;
+  /** Enrolment time the age cap is measured at (default: now). */
+  now?: Date;
 }): { ok: true } | { ok: false; reason: string } {
   if (opts.isExcludedEmail) return { ok: false, reason: "excluded_email" };
   if (opts.unsubscribed) return { ok: false, reason: "unsubscribed" };
   if (!opts.emailVerified) return { ok: false, reason: "unverified_email" };
   if (opts.junkReason) return { ok: false, reason: opts.junkReason };
   if (opts.alreadyHasActiveTrial) return { ok: false, reason: "already_enrolled" };
+  // has_project / has_prior_product_trial / account_too_old (> SIGNUP_NURTURE_MAX_ACCOUNT_AGE_DAYS).
+  const history = signupHistoryReason({
+    hasProject: opts.hasProject,
+    hasPriorProductTrial: opts.hasPriorProductTrial,
+    signupCreatedAt: opts.signupCreatedAt,
+    at: opts.now ?? new Date(),
+  });
+  if (history) return { ok: false, reason: history };
   if (!sequenceKey(SIGNUP_PRODUCT)) return { ok: false, reason: "no_sequence" };
   return { ok: true };
 }
