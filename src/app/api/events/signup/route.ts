@@ -12,6 +12,8 @@ import {
   signupAppId,
   canEnrolSignupNurture,
   canEnrolVerifyReminder,
+  contactTrialHistory,
+  signupCreatedAtOf,
 } from "@/lib/trialNurture/signupEnrolment";
 
 /**
@@ -150,7 +152,13 @@ export async function POST(req: NextRequest) {
     alreadyHasActiveTrial: already,
   };
   const gate = verifiedNow
-    ? canEnrolSignupNurture({ ...shared, emailVerified: verifiedNow })
+    ? canEnrolSignupNurture({
+      ...shared,
+      emailVerified: verifiedNow,
+      ...contactTrialHistory(existingTrials),
+      signupCreatedAt: signupCreatedAtOf(contact),
+      now: new Date(),
+    })
     : canEnrolVerifyReminder(shared);
   const product = verifiedNow ? SIGNUP_PRODUCT : VERIFY_REMINDER_PRODUCT;
 

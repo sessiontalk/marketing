@@ -1,5 +1,6 @@
 import { mapLegacySoftphoneSentSteps } from "./softphoneStepMap";
 import { workspaceHost, stepLinkFields, formatTrialEndsDate } from "./links";
+import { signupHistoryReason } from "./signupGuards";
 /**
  * SessionPBX (Teams Phone / Teams Business) trial nurture — activity-triggered.
  * Pure decision logic, no I/O, so it is unit-testable. Skip rules are re-checked at send time.
@@ -37,6 +38,12 @@ export interface TrialState {
   sentSteps: Step[];              // steps already sent OR skipped (terminal per step)
   /** When the last nurture email actually went out (sent/sending). At most one email per trial per 24h. */
   lastSentAt?: Date | null;
+  /** signup_finish_setup re-check: contact has another non-signup trial row (any plan_status). */
+  contactHasPriorProductTrial?: boolean;
+  /** signup_finish_setup re-check: another trial row for the contact has a project. */
+  contactHasProject?: boolean;
+  /** signup_finish_setup re-check: signup created date (signupCreatedAtOf); age cap measured at enrolledAt. */
+  signupCreatedAt?: Date | null;
 }
 
 export type Decision =
@@ -88,9 +95,15 @@ export function skipReason(step: Step, s: TrialState, now: Date): string | null 
     return s.emailVerified ? "already_verified" : null;
   }
   // Signup finish-setup: skip remaining steps once a project / trial exists.
+  // Also re-check the contact's other trial rows and the signup age at enrolment (not at send time).
   if (s.product === "signup_finish_setup") {
     if (s.projectCreatedAt) return "has_project";
-    return null;
+    return signupHistoryReason({
+      hasProject: s.contactHasProject,
+      hasPriorProductTrial: s.contactHasPriorProductTrial,
+      signupCreatedAt: s.signupCreatedAt,
+      at: s.enrolledAt,
+    });
   }
   switch (step) {
     case 1: return s.extensionCount > 0 ? "has_extension" : null;

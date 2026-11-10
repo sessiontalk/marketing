@@ -15,7 +15,11 @@ import {
   SIGNUP_SEQUENCE_PRODUCTS,
   signupAppId,
   canEnrolSignupNurture,
+  isTrialRowActive,
+  contactTrialHistory,
+  signupCreatedAtOf,
 } from "@/lib/trialNurture/signupEnrolment";
+import { signupHistoryReason } from "@/lib/trialNurture/signupGuards";
 import { isExcludedEmail, junkReason } from "@/lib/trialNurture/exclusions";
 
 /**
@@ -58,16 +62,25 @@ export async function POST(req: NextRequest) {
     // Enrol or promote into signup_finish_setup so the welcome drip starts once they verify.
     // Never downgrade a product trial. If a verify-reminder row exists, rewrite it.
     const existing = await db.select().from(trialAccounts).where(eq(trialAccounts.contactId, contact.id));
-    const active = existing.filter((r) => r.planStatus === "trial" || r.planStatus === "paid");
+    const nowVerify = new Date();
+    // Active = paid, or 'trial' not past trial_ends_at (a stale 'trial' row is not active).
+    const active = existing.filter((r) => isTrialRowActive(r, nowVerify));
     const reminder = active.find((r) => r.product === VERIFY_REMINDER_PRODUCT);
     const finish = active.find((r) => r.product === SIGNUP_PRODUCT);
     const productTrial = active.find((r) => !SIGNUP_SEQUENCE_PRODUCTS.includes(r.product as typeof SIGNUP_PRODUCT));
+    // Any prior product trial (cancelled / expired / stale included) or any project blocks signup nurture.
+    const history = contactTrialHistory(existing);
+    const signupCreatedAt = signupCreatedAtOf(contact);
 
     if (productTrial) {
       return NextResponse.json({ ok: true, enrolment: "has_product_trial" });
     }
     if (finish) {
       return NextResponse.json({ ok: true, enrolment: "already_finish_setup" });
+    }
+    const historyReason = signupHistoryReason({ ...history, signupCreatedAt, at: nowVerify });
+    if (historyReason) {
+      return NextResponse.json({ ok: true, enrolment: "skipped", reason: historyReason });
     }
     if (reminder) {
       await db.update(trialAccounts).set({
@@ -90,7 +103,11 @@ export async function POST(req: NextRequest) {
       unsubscribed: !!contact.unsubscribed,
       isExcludedEmail: isExcludedEmail(email),
       junkReason: junk,
-      alreadyHasActiveTrial: false,
+      alreadyHasActiveTrial: !!productTrial,
+      hasPriorProductTrial: history.hasPriorProductTrial,
+      hasProject: history.hasProject,
+      signupCreatedAt,
+      now: nowVerify,
     });
     if (!gate.ok) return NextResponse.json({ ok: true, enrolment: "skipped", reason: gate.reason });
     if (!objectId) return NextResponse.json({ ok: true, enrolment: "skipped", reason: "missing_objectId" });

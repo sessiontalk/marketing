@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { activities, contacts, trialAccounts, trialNurtureSteps, unsubscribeTokens } from "@/db/schema";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, ne, sql } from "drizzle-orm";
 import { isDripSendingEnabled } from "@/lib/killSwitch";
 import { decide, render, renderSubject, Step, NURTURE_PRODUCTS, sequenceKey } from "@/lib/trialNurture/schedule";
 import { copyFor } from "@/lib/trialNurture/copy";
@@ -10,7 +10,7 @@ import { trialNurtureBccAddress } from "@/lib/trialNurture/bcc";
 import { isExcludedWorkspace, isExcludedEmail, isStep5ManualWorkspace, junkReason } from "@/lib/trialNurture/exclusions";
 import { emailDeliverabilityReason } from "@/lib/trialNurture/mailQuality";
 import { mintConfirmEmailUrl } from "@/lib/trialNurture/confirmEmailLink";
-import { SIGNUP_PRODUCT, VERIFY_REMINDER_PRODUCT } from "@/lib/trialNurture/signupEnrolment";
+import { SIGNUP_PRODUCT, VERIFY_REMINDER_PRODUCT, contactTrialHistory, signupCreatedAtOf } from "@/lib/trialNurture/signupEnrolment";
 import { sendEmail, NURTURE_FROM_EMAIL, SIGNUP_NURTURE_FROM_EMAIL, NURTURE_REPLY_TO, LIST_UNSUBSCRIBE_MAILTO } from "@/lib/email";
 import { generateUnsubscribeToken } from "@/lib/tokens";
 import { renderNurtureHtml, escapeHtml, htmlHasUnfilledPlaceholder, htmlToVisibleText, htmlHrefs } from "@/lib/trialNurture/htmlTemplate";
@@ -76,9 +76,18 @@ async function run(req: NextRequest) {
         done = await db.select({ step: trialNurtureSteps.step, status: trialNurtureSteps.status, createdAt: trialNurtureSteps.createdAt }).from(trialNurtureSteps).where(eq(trialNurtureSteps.trialAccountId, t.id));
       }
     }
+    // Signup finish-setup re-check before any send: the contact's OTHER trial rows (any plan_status)
+    // and the signup age at enrolment. decide() records a skip with the reason instead of sending.
+    let signupGuard: { contactHasPriorProductTrial?: boolean; contactHasProject?: boolean; signupCreatedAt?: Date | null } = {};
+    if (t.product === SIGNUP_PRODUCT || t.product === VERIFY_REMINDER_PRODUCT) {
+      const others = await db.select({ product: trialAccounts.product, projectCreatedAt: trialAccounts.projectCreatedAt })
+        .from(trialAccounts).where(and(eq(trialAccounts.contactId, c.id), ne(trialAccounts.id, t.id)));
+      const h = contactTrialHistory(others);
+      signupGuard = { contactHasPriorProductTrial: h.hasPriorProductTrial, contactHasProject: h.hasProject, signupCreatedAt: signupCreatedAtOf(c) };
+    }
     const sentTimes = done.filter((r) => r.status === "sent" || r.status === "sending").map((r) => (r.createdAt ? new Date(r.createdAt).getTime() : 0));
     const lastSentAt = sentTimes.length ? new Date(Math.max(...sentTimes)) : null;
-    let d = decide({ ...t, product: t.product as any, planStatus: t.planStatus as any, unsubscribed: !!c.unsubscribed, emailVerified: !!c.emailVerified, sentSteps: done.map((r) => r.step as Step), lastSentAt }, now);
+    let d = decide({ ...t, product: t.product as any, planStatus: t.planStatus as any, unsubscribed: !!c.unsubscribed, emailVerified: !!c.emailVerified, sentSteps: done.map((r) => r.step as Step), lastSentAt, ...signupGuard }, now);
     if (d.action === "wait" || d.action === "stop") continue;
     // Sales sends email 05 manually for these tenants: record step 5 as skipped, never send it.
     if (d.action === "send" && d.step === 5 && isStep5ManualWorkspace(t)) d = { step: 5, action: "skip", reason: "manual_sales" };
@@ -99,7 +108,7 @@ async function run(req: NextRequest) {
         await db.delete(trialNurtureSteps).where(eq(trialNurtureSteps.trialAccountId, t.id));
         t = { ...t, product: SIGNUP_PRODUCT };
         done = [];
-        d = decide({ ...t, product: t.product as any, planStatus: t.planStatus as any, unsubscribed: !!c.unsubscribed, emailVerified: true, sentSteps: [], lastSentAt }, now);
+        d = decide({ ...t, product: t.product as any, planStatus: t.planStatus as any, unsubscribed: !!c.unsubscribed, emailVerified: true, sentSteps: [], lastSentAt, ...signupGuard }, now);
         if (d.action === "wait" || d.action === "stop") continue;
       } else if (!minted.ok) {
         console.log(JSON.stringify({
