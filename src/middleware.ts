@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { COOKIE_NAME, verifySessionToken } from "@/lib/session";
-import { isPublicEmailAsset } from "@/lib/publicAssets";
 
 const PUBLIC_PREFIXES = [
   "/api/events/",
@@ -19,8 +18,7 @@ export async function middleware(req: NextRequest) {
   if (
     pathname.startsWith("/_next/static") ||
     pathname.startsWith("/_next/image") ||
-    STATIC_EXACT.has(pathname) ||
-    isPublicEmailAsset(pathname) // email thumbnails only: public/email/youtube/<slug>.jpg
+    STATIC_EXACT.has(pathname)
   ) {
     return NextResponse.next();
   }
