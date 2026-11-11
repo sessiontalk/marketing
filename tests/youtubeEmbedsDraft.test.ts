@@ -76,8 +76,34 @@ test("HoM exact 'after' text for every placement", () => {
   assert.equal(body("sessionpbx_trial", 4), `Hi {first_name},\n\nYou're a week into your SessionPBX trial, so I wanted to see how it's going.\n\nIf a short overview would help, this video explains how SessionPBX works:\n\nWatch: Hosted Phone System for Small Businesses, Explained | SessionPBX\nhttps://www.youtube.com/watch?v=wVg9-Tdf03E\n\nIf anything's unclear, just reply to this email.\n\nMaryam Fatima\nSessionTalk\nmaryam@sessiontalk.co.uk`);
 });
 
-test("softphone HTML drafts only add the block to the approved fragment", () => {
-  for (const p of YOUTUBE_DRAFT_PLACEMENTS.generic_softphone) {
+test("softphone step 2: HTML and text both split the closing paragraph, video block before 'Reply with what you see'", () => {
+  const p = YOUTUBE_DRAFT_PLACEMENTS.generic_softphone.find((x) => x.step === 2)!;
+  const live = NURTURE_SEQUENCES.generic_softphone.find((c) => c.step === 2)!;
+  const draft = YOUTUBE_DRAFT_SEQUENCES.generic_softphone.find((c) => c.step === 2)!;
+  const P = `<p style="margin:0 0 16px 0;font-family:Arial,Helvetica,sans-serif;font-size:16px;line-height:24px;color:#1e293b;">`;
+  const html = draft.html!;
+  const iPhone = html.indexOf("not matching your phone system.</p>");
+  const iBlock = html.indexOf(youtubeThumbBlockHtml(p));
+  const iReply = html.indexOf(`${P}Reply with what you see and I'll help.</p>`);
+  const iSign = html.lastIndexOf(`<p style="margin:24px 0 0 0;`);
+  assert.ok(iPhone > 0 && iPhone < iBlock && iBlock < iReply && iReply < iSign, "html order");
+  assert.ok(!html.includes("phone system. Reply with what you see"), "html paragraph is split");
+  assert.equal(html.split(youtubeThumbBlockHtml(p)).length, 2, "one block");
+  const text = draft.body;
+  const tPhone = text.indexOf("not matching your phone system.\n\n");
+  const tBlock = text.indexOf(youtubeThumbBlockText(p));
+  const tReply = text.indexOf("\n\nReply with what you see and I'll help.\n\n");
+  const tSign = text.lastIndexOf("\n\nMaryam Fatima");
+  assert.ok(tPhone > 0 && tPhone < tBlock && tBlock < tReply && tReply < tSign, "text order");
+  // Only that split + block differ from the approved HTML.
+  assert.equal(
+    html.replace(`.</p>\n${youtubeThumbBlockHtml(p)}\n${P}Reply with what you see and I'll help.</p>`, ". Reply with what you see and I'll help.</p>"),
+    live.html,
+  );
+});
+
+test("softphone HTML drafts (steps 3, 5) only add the block to the approved fragment", () => {
+  for (const p of YOUTUBE_DRAFT_PLACEMENTS.generic_softphone.filter((x) => x.step !== 2)) {
     const live = NURTURE_SEQUENCES.generic_softphone.find((c) => c.step === p.step)!;
     const draft = YOUTUBE_DRAFT_SEQUENCES.generic_softphone.find((c) => c.step === p.step)!;
     assert.equal(draft.html!.replace(youtubeThumbBlockHtml(p) + "\n", ""), live.html, `step ${p.step}`);

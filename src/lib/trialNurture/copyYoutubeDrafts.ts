@@ -24,11 +24,15 @@ interface Placement extends YoutubePlacementCopy {
   text: { find: string; replace: string };
   /** HTML fragment (softphone only; Teams HTML is built from the text): insert block before this exact substring. */
   htmlBefore?: string;
+  /** HTML fragment alternative: exact substring to replace (block = {BLOCK}). Used when HoM splits a paragraph. */
+  htmlReplace?: { find: string; replace: string };
   optional?: boolean;
 }
 
 const BLOCK = "{BLOCK}";
 const SOFTPHONE_SIGNOFF_HTML = `<p style="margin:24px 0 0 0;`;
+/** Body paragraph style used by the approved softphone HTML fragments. */
+const BODY_P = `<p style="margin:0 0 16px 0;font-family:Arial,Helvetica,sans-serif;font-size:16px;line-height:24px;color:#1e293b;">`;
 
 export const YOUTUBE_DRAFT_PLACEMENTS: Record<YoutubeDraftSequenceKey, Placement[]> = {
   // Softphone pack: steps 1, 4, 6 have no video.
@@ -38,12 +42,16 @@ export const YOUTUBE_DRAFT_PLACEMENTS: Record<YoutubeDraftSequenceKey, Placement
       video: YOUTUBE_VIDEOS.registrationFailed,
       leadIn: "This short video walks through the usual registration checks:",
       alt: "Video thumbnail: Fix Registration Failed on SessionTalk Softphone Mobile, for iPhone and Android",
-      // HoM: text splits the closing paragraph; HTML goes after that paragraph, before the sign-off.
+      // HoM text splits the closing paragraph; HTML is split the same way (HoD, 11 Nov):
+      // "...phone system." / video block / "Reply with what you see and I'll help." / sign-off.
       text: {
         find: "matching your phone system. Reply with what you see and I'll help.\n\n",
         replace: `matching your phone system.\n\n${BLOCK}\n\nReply with what you see and I'll help.\n\n`,
       },
-      htmlBefore: SOFTPHONE_SIGNOFF_HTML,
+      htmlReplace: {
+        find: "matching your phone system. Reply with what you see and I'll help.</p>\n",
+        replace: `matching your phone system.</p>\n${BLOCK}\n${BODY_P}Reply with what you see and I'll help.</p>\n`,
+      },
     },
     {
       step: 3,
@@ -125,7 +133,9 @@ function draftFor(key: YoutubeDraftSequenceKey): NurtureCopy[] {
     const what = `${key} step ${p.step}`;
     const body = replaceExactlyOnce(c.body, p.text.find, p.text.replace.split(BLOCK).join(youtubeThumbBlockText(p)), what);
     let html: string;
-    if (c.html) {
+    if (c.html && p.htmlReplace) {
+      html = replaceExactlyOnce(c.html, p.htmlReplace.find, p.htmlReplace.replace.split(BLOCK).join(youtubeThumbBlockHtml(p)), `${what} html`);
+    } else if (c.html) {
       if (!p.htmlBefore) throw new Error(`youtube draft: html anchor missing (${what})`);
       const anchor = p.htmlBefore;
       const i = anchor === SOFTPHONE_SIGNOFF_HTML ? c.html.lastIndexOf(anchor) : c.html.indexOf(anchor);
