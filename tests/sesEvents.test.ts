@@ -105,3 +105,29 @@ test("backfill splitRecords handles array, jsonl and concatenated JSON", () => {
   assert.equal(splitRecords('{"a":1}\n{"a":"}"}').length, 2);
   assert.equal(splitRecords('{"a":1}{"b":2}').length, 2);
 });
+
+test("identity notifications (notificationType, no tags, raw) also suppress: SessionCloud / maryam@ shape", async () => {
+  const m = memStore({});
+  const identityComplaint = { notificationType: "Complaint", mail: { messageId: "scl-1", timestamp: iso(0), destination: ["Someone@Hotmail.example"] },
+    complaint: { complaintFeedbackType: "abuse", timestamp: iso(240), complainedRecipients: [{ emailAddress: "Someone@Hotmail.example" }] } };
+  const identityHardBounce = { notificationType: "Bounce", mail: { messageId: "scl-2", timestamp: iso(0), destination: ["gone@example.org"] },
+    bounce: { bounceType: "Permanent", bounceSubType: "General", timestamp: iso(5), bouncedRecipients: [{ emailAddress: "gone@example.org" }] } };
+  const transient = { notificationType: "Bounce", mail: { messageId: "scl-3", timestamp: iso(0), destination: ["full@example.org"] },
+    bounce: { bounceType: "Transient", timestamp: iso(5), bouncedRecipients: [{ emailAddress: "full@example.org" }] } };
+  const r = await processBatch([JSON.stringify(identityComplaint), sns(identityHardBounce), JSON.stringify(transient)], m.store);
+  assert.deepEqual(r.okIndexes, [0, 1, 2]);
+  assert.deepEqual(m.supp.sort(), [["gone@example.org", "ses_hard_bounce"], ["someone@hotmail.example", "ses_complaint"]]);
+});
+
+test("re-delivery, duplicates and out-of-order arrival converge (one row per event, suppression never reversed)", async () => {
+  const m = memStore();
+  const complaint = { eventType: "Complaint", mail: mail(), complaint: { complainedRecipients: [{ emailAddress: "bob@example.com" }], timestamp: iso(900) } };
+  // complaint first, then the earlier delivery/open, then the same complaint again (SQS at-least-once + SNS duplicate)
+  await processBatch([sns(complaint)], m.store);
+  await processBatch([sns(open(4000)), sns(delivery()), JSON.stringify(complaint)], m.store);
+  await processBatch([sns(complaint), sns(complaint)], m.store);
+  assert.equal(m.rows.size, 3);
+  assert.equal([...m.rows.values()].filter((r) => r.kind === "complaint").length, 1);
+  assert.ok(m.supp.every(([e, why]) => e === "bob@example.com" && why === "ses_complaint"));
+  assert.equal(m.acts.filter((a) => a.kind === "complaint").length, 1);
+});
