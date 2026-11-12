@@ -1,6 +1,7 @@
-import { NURTURE_COPY } from "./copy";
+import { NURTURE_COPY, NURTURE_SEQUENCES } from "./copy";
 import { render, type Step } from "./schedule";
-import { assertSafeNurtureText } from "./links";
+import { assertSafeNurtureText, UNFILLED_PLACEHOLDER_RE } from "./links";
+import { renderNurtureHtml, escapeHtml, htmlHasUnfilledPlaceholder, htmlToVisibleText, htmlHrefs } from "./htmlTemplate";
 import { listUnsubscribeHeaders, publicUnsubscribeUrl } from "../unsubscribe";
 
 export const TEAMS_PRODUCTS = ["teams_phone", "teams_business"] as const;
@@ -11,7 +12,8 @@ export function isTeamsProduct(p: string | null | undefined): boolean {
 const EMAIL_RE = /^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]+$/;
 const SIP_RE = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.(?:(?:uk|us|asia)\.sip|eu(?:\.sip)?)\.sessiontalk\.io$/i;
 export const MAX_TEST_RECIPIENTS = 10;
-const ALL_STEPS: Step[] = [1, 2, 3, 4, 5];
+const ALL_STEPS: Step[] = [1, 2, 3, 4, 5, 6];
+const DEFAULT_STEPS: Step[] = [1, 2, 3, 4, 5];
 
 /** Placeholder token for test sends: the header has the production shape, but the link does nothing (no DB row). */
 export const TEST_UNSUBSCRIBE_TOKEN = "test-send-no-token";
@@ -22,10 +24,14 @@ export interface TestSequenceInput {
   sipDomain: string;
   accountName?: string;
   firstName?: string;
-  /** Subset of 1..5 to send (e.g. [1]). Default: all 5. */
+  /** Subset of 1..6 to send (e.g. [1]). Default: all steps for the sequence (5, or 6 for softphone). */
   steps?: Array<number | string>;
-  /** true: use the exact production subject (no "[TEST n/5]" prefix), for placement tests. */
+  /** true: use the exact production subject (no "[TEST n/N]" prefix), for placement tests. */
   productionSubject?: boolean;
+  /** Sequence to sample (default Teams "sessionpbx_trial"). */
+  sequence?: keyof typeof NURTURE_SEQUENCES;
+  /** Sample trial end (needed for generic_softphone step 6). Default: now + 2 days. */
+  trialEndsAt?: Date | string;
 }
 
 export function parseRecipients(to: string | string[] | null | undefined): string[] {
@@ -40,9 +46,10 @@ export function parseRecipients(to: string | string[] | null | undefined): strin
   return out;
 }
 
-export function parseSteps(steps: Array<number | string> | null | undefined): Step[] {
-  if (steps == null || (Array.isArray(steps) && steps.length === 0)) return [...ALL_STEPS];
-  if (!Array.isArray(steps)) throw new Error("steps must be an array of 1-5");
+export function parseSteps(steps: Array<number | string> | null | undefined, sequence?: keyof typeof NURTURE_SEQUENCES): Step[] {
+  const defaults: Step[] = sequence === "generic_softphone" ? [...ALL_STEPS] : [...DEFAULT_STEPS];
+  if (steps == null || (Array.isArray(steps) && steps.length === 0)) return defaults;
+  if (!Array.isArray(steps)) throw new Error("steps must be an array of 1-6");
   const set = new Set<Step>();
   for (const s of steps) {
     const n = typeof s === "number" ? s : /^\d+$/.test(String(s).trim()) ? Number(String(s).trim()) : NaN;
@@ -58,13 +65,23 @@ export function buildTestSequence(input: TestSequenceInput) {
   const sipDomain = (input.sipDomain || "").trim();
   if (!SIP_RE.test(sipDomain)) throw new Error("invalid sample sip_domain");
   const accountName = (input.accountName || sipDomain.split(".")[0]).trim();
-  const steps = parseSteps(input.steps);
-  return NURTURE_COPY.filter((c) => steps.includes(c.step)).map((c) => {
-    const text = render(c.body, input.firstName ?? "", { sipDomain, accountName });
-    if (/\{(sip_domain|accountName|first_name)\}/.test(text)) throw new Error(`unfilled placeholder in step ${c.step}`);
+  const seq = input.sequence ? NURTURE_SEQUENCES[input.sequence] : NURTURE_COPY;
+  const steps = parseSteps(input.steps, input.sequence);
+  const total = seq.length;
+  const product = input.sequence === "generic_softphone" || input.sequence === "hosted_pbx" ? input.sequence : null;
+  const trialEndsAt = input.trialEndsAt ?? new Date(Date.now() + 2 * 24 * 3_600_000);
+  return seq.filter((c) => steps.includes(c.step)).map((c) => {
+    const fields = { sipDomain, accountName, trialEndsAt, product, step: c.step };
+    const text = render(c.body, input.firstName ?? "", fields);
+    const subj = render(c.subject, input.firstName ?? "", fields);
+    if (UNFILLED_PLACEHOLDER_RE.test(text) || UNFILLED_PLACEHOLDER_RE.test(subj)) throw new Error(`unfilled placeholder in step ${c.step}`);
     assertSafeNurtureText(text, sipDomain);
-    const subject = input.productionSubject ? c.subject : `[TEST ${c.step}/5] ${c.subject}`;
-    return { step: c.step, subject, text };
+    const subject = input.productionSubject ? subj : `[TEST ${c.step}/${total}] ${subj}`;
+    const htmlBody = c.html ? render(c.html, escapeHtml(input.firstName ?? ""), fields) : undefined;
+    const html = renderNurtureHtml({ textBody: text, unsubscribeUrl: publicUnsubscribeUrl(TEST_UNSUBSCRIBE_TOKEN), subject: subj, htmlBody });
+    if (htmlHasUnfilledPlaceholder(html)) throw new Error(`unfilled placeholder in html step ${c.step}`);
+    assertSafeNurtureText(htmlToVisibleText(html) + "\n" + htmlHrefs(html), sipDomain);
+    return { step: c.step, subject, text, html };
   });
 }
 

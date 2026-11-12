@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
     for (const s of plan.steps) {
       const links = s.text.match(/https?:\/\/[^\s)]+/g) || [];
       try {
-        const r = await sendEmail({ to, subject: s.subject, text: s.text, headers: plan.headers,
+        const r = await sendEmail({ to, subject: s.subject, text: s.text, html: s.html, headers: plan.headers,
           from: NURTURE_FROM_EMAIL, replyTo: NURTURE_REPLY_TO, tags: { nurture: "sessionpbx_trial_test", step: String(s.step) } });
         results.push({ to, step: s.step, id: r.id, links });
       } catch (e: any) {
