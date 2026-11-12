@@ -1,5 +1,6 @@
 import { NEWSLETTER_FROM_EMAIL, NEWSLETTER_REPLY_TO, LIST_UNSUBSCRIBE_MAILTO, type SendEmailParams } from "./email";
 import { isValidUnsubscribeToken, listUnsubscribeHeaders, publicUnsubscribeUrl } from "./unsubscribe";
+import { sesConfigurationSetFor } from "./sendGuard";
 
 /**
  * Newsletter / broadcast message builder. Pure (no DB, no network). Every newsletter send must:
@@ -44,7 +45,7 @@ export function newsletterSesOptions(
   tracking: NewsletterTracking | undefined,
   env: Record<string, string | undefined> = process.env
 ): Pick<SendEmailParams, "configurationSetName" | "tags"> {
-  const configurationSetName = (env.SES_CONFIGURATION_SET || "").trim();
+  const configurationSetName = sesConfigurationSetFor("newsletter", env);
   if (!configurationSetName) return {};
   return {
     configurationSetName,

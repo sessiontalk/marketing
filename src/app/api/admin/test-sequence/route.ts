@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { COOKIE_NAME, verifySessionToken } from "@/lib/session";
 import { buildTestSend } from "@/lib/trialNurture/testSequence";
 import { sendEmail, NURTURE_FROM_EMAIL, NURTURE_REPLY_TO, LIST_UNSUBSCRIBE_MAILTO } from "@/lib/email";
+import { sesConfigurationSetFor } from "@/lib/sendGuard";
 
 export const dynamic = "force-dynamic";
 
@@ -31,7 +32,8 @@ export async function POST(req: NextRequest) {
       const links = s.text.match(/https?:\/\/[^\s)]+/g) || [];
       try {
         const r = await sendEmail({ to, subject: s.subject, text: s.text, html: s.html, headers: plan.headers,
-          from: NURTURE_FROM_EMAIL, replyTo: NURTURE_REPLY_TO, tags: { nurture: "sessionpbx_trial_test", step: String(s.step) } });
+          from: NURTURE_FROM_EMAIL, replyTo: NURTURE_REPLY_TO, tags: { nurture: "sessionpbx_trial_test", step: String(s.step) },
+          configurationSetName: sesConfigurationSetFor("trial_nurture") });
         results.push({ to, step: s.step, id: r.id, links });
       } catch (e: any) {
         results.push({ to, step: s.step, error: String(e?.name || "error"), links });

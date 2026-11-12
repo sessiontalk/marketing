@@ -13,6 +13,8 @@ import { generateUnsubscribeToken, getUnsubscribeUrl } from "@/lib/tokens";
 import { eq, and, lte } from "drizzle-orm";
 import { sequences } from "@/db/schema";
 import { isDripSendingEnabled, RETIRED_SEQUENCE_NAMES } from "@/lib/killSwitch";
+import { dbSuppressionStore } from "@/lib/suppressionDb";
+import { preSendSkipReason, sesConfigurationSetFor } from "@/lib/sendGuard";
 
 const BATCH_SIZE = 50;
 
@@ -92,6 +94,15 @@ async function run(req: NextRequest) {
       continue;
     }
 
+    // Pre-send check against every opt-out / SES suppression for this address (any contact row).
+    if (await preSendSkipReason(contact.email, "sequence", dbSuppressionStore)) {
+      await db
+        .update(sequenceEnrollments)
+        .set({ status: "cancelled" })
+        .where(eq(sequenceEnrollments.id, enrollment.id));
+      continue;
+    }
+
     const unsubToken = generateUnsubscribeToken();
     await db.insert(unsubscribeTokens).values({
       token: unsubToken,
@@ -120,6 +131,7 @@ async function run(req: NextRequest) {
           sequence_id: enrollment.sequenceId,
           step: String(nextStepOrder),
         },
+        configurationSetName: sesConfigurationSetFor("sequence"),
       });
 
       await db.insert(sendLogs).values({
