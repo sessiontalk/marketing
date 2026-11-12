@@ -14,7 +14,7 @@ import { eq, and, lte } from "drizzle-orm";
 import { sequences } from "@/db/schema";
 import { isDripSendingEnabled, RETIRED_SEQUENCE_NAMES } from "@/lib/killSwitch";
 import { dbSuppressionStore } from "@/lib/suppressionDb";
-import { preSendSkipReason, sesConfigurationSetFor } from "@/lib/sendGuard";
+import { preSendDecision, newPreSendRunState, sesConfigurationSetFor } from "@/lib/sendGuard";
 
 const BATCH_SIZE = 50;
 
@@ -53,6 +53,7 @@ async function run(req: NextRequest) {
 
   let sent = 0;
   let failed = 0;
+  const preSendState = newPreSendRunState();
 
   for (const { enrollment, contact, sequence } of dueEnrollments) {
     if (RETIRED_SEQUENCE_NAMES.has(sequence.name)) continue; // legacy softphone copy never sends
@@ -95,7 +96,10 @@ async function run(req: NextRequest) {
     }
 
     // Pre-send check against every opt-out / SES suppression for this address (any contact row).
-    if (await preSendSkipReason(contact.email, "sequence", dbSuppressionStore)) {
+    // A failed lookup leaves the enrolment untouched (still due, retried next run, nothing sent).
+    const pre = await preSendDecision(contact.email, "sequence", dbSuppressionStore, preSendState);
+    if (pre.action === "defer") continue;
+    if (pre.action === "skip") {
       await db
         .update(sequenceEnrollments)
         .set({ status: "cancelled" })

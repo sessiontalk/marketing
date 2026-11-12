@@ -47,3 +47,33 @@ export async function preSendSkipReason(
   if (reason) log({ level: "info", msg: "email_send_skipped", stream, reason, recipient: recipientTag(n) });
   return reason;
 }
+
+export type PreSendDecision = { action: "send" } | { action: "skip"; reason: SkipReason } | { action: "defer" };
+
+/** Per-worker-run state so a failing lookup is logged once per run, not once per recipient. */
+export interface PreSendRunState { lookupErrorLogged: boolean }
+export const newPreSendRunState = (): PreSendRunState => ({ lookupErrorLogged: false });
+
+/**
+ * Worker-facing wrapper around preSendSkipReason. A failed suppression lookup returns "defer":
+ * the caller must leave the step exactly as it was (not claimed, not failed, not skipped, nothing
+ * sent) so the next cron run retries it. The error is logged once per run, by name only (no address).
+ */
+export async function preSendDecision(
+  to: string,
+  stream: SendStream,
+  store: SuppressionStore,
+  state: PreSendRunState,
+  log: (line: Record<string, unknown>) => void = (l) => console.log(JSON.stringify(l))
+): Promise<PreSendDecision> {
+  try {
+    const reason = await preSendSkipReason(to, stream, store, log);
+    return reason ? { action: "skip", reason } : { action: "send" };
+  } catch (e) {
+    if (!state.lookupErrorLogged) {
+      state.lookupErrorLogged = true;
+      log({ level: "warn", msg: "email_suppression_lookup_failed_deferred", stream, err: String((e as any)?.name || "Error").slice(0, 64) });
+    }
+    return { action: "defer" };
+  }
+}

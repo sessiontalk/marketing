@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { preSendSkipReason, sesConfigurationSetFor, recipientTag } from "../src/lib/sendGuard";
+import { preSendSkipReason, preSendDecision, newPreSendRunState, sesConfigurationSetFor, recipientTag } from "../src/lib/sendGuard";
 import { normalizeEmail, assertSendable, type SuppressionStore } from "../src/lib/suppression";
 import { runBroadcast, type BroadcastDeps } from "../src/lib/newsletterBroadcast";
 import { newsletterSesOptions } from "../src/lib/newsletter";
@@ -81,10 +81,10 @@ test("newsletter broadcast skips complaint-suppressed, hard-bounced and unsubscr
 
 test("every CRM send path runs the pre-send check before sending and passes the configuration set", () => {
   const seq = readFileSync("src/app/api/worker/sequences/route.ts", "utf8");
-  assert.match(seq, /preSendSkipReason\(contact\.email, "sequence", dbSuppressionStore\)[\s\S]*sendEmail\(/);
+  assert.match(seq, /preSendDecision\(contact\.email, "sequence", dbSuppressionStore, preSendState\)[\s\S]*sendEmail\(/);
   assert.match(seq, /configurationSetName: sesConfigurationSetFor\("sequence"\)/);
   const tn = readFileSync("src/app/api/worker/trial-nurture/route.ts", "utf8");
-  assert.match(tn, /preSendSkipReason\(c\.email, "trial_nurture", dbSuppressionStore\)[\s\S]*sendEmail\(/);
+  assert.match(tn, /preSendDecision\(c\.email, "trial_nurture", dbSuppressionStore, preSendState\)[\s\S]*sendEmail\(/);
   assert.match(tn, /configurationSetName: sesConfigurationSetFor\("trial_nurture"\)/);
   assert.doesNotMatch(tn, /SES_NURTURE_CONFIGURATION_SET/);
   const adminTest = readFileSync("src/app/api/admin/test-sequence/route.ts", "utf8");
@@ -93,4 +93,74 @@ test("every CRM send path runs the pre-send check before sending and passes the 
   assert.match(nl, /sesConfigurationSetFor\("newsletter", env\)/);
   const script = readFileSync("scripts/newsletter-issue01/send-newsletter-issue01.ts", "utf8");
   assert.match(script, /assertSendable/);
+});
+
+// ── Failed suppression lookup: defer (retry next run), never fail/skip the step, never send ──
+
+/** Store whose lookup fails until `heal()` is called (DB blip between cron runs). */
+function flakyStore(rows: Record<string, string> = {}) {
+  let broken = true;
+  const inner = memStore(rows).store;
+  const store: SuppressionStore = {
+    async suppressed(emails) { if (broken) { const e = new Error("connect ETIMEDOUT someone@example.com"); e.name = "NeonDbError"; throw e; } return inner.suppressed(emails); },
+    suppress: inner.suppress,
+  };
+  return { store, heal: () => { broken = false; } };
+}
+
+/**
+ * Minimal model of one worker run, mirroring the route order: decision BEFORE any step write
+ * (trial-nurture: before the claim insert; sequences: before the enrolment update / token / send).
+ */
+type Step = { to: string; status: "pending" | "sent" | "skipped" | "failed"; reason?: string };
+async function workerRun(stream: "sequence" | "trial_nurture", steps: Step[], store: SuppressionStore, logs: Array<Record<string, unknown>>, sent: string[]) {
+  const state = newPreSendRunState();
+  const out = { sent: 0, skipped: 0, held: 0 };
+  for (const s of steps.filter((x) => x.status === "pending")) {
+    const pre = await preSendDecision(s.to, stream, store, state, (l) => logs.push(l));
+    if (pre.action === "defer") { out.held++; continue; }
+    if (pre.action === "skip") { s.status = "skipped"; s.reason = pre.reason; out.skipped++; continue; }
+    sent.push(s.to); s.status = "sent"; out.sent++;
+  }
+  return out;
+}
+
+for (const stream of ["sequence", "trial_nurture"] as const) {
+  test(`${stream}: a lookup error leaves steps pending and sends nothing; the next run succeeds`, async () => {
+    const f = flakyStore({ "angry@hotmail.example": "ses_complaint" });
+    const steps: Step[] = [{ to: "a@example.com", status: "pending" }, { to: "b@example.com", status: "pending" }, { to: "angry@hotmail.example", status: "pending" }];
+    const logs: Array<Record<string, unknown>> = []; const sent: string[] = [];
+    const r1 = await workerRun(stream, steps, f.store, logs, sent);
+    assert.deepEqual(r1, { sent: 0, skipped: 0, held: 3 });
+    assert.deepEqual(sent, []);
+    assert.ok(steps.every((s) => s.status === "pending"));          // not failed, not skipped: retryable
+    assert.equal(logs.length, 1);                                    // logged once per run, not per recipient
+    assert.equal(logs[0].msg, "email_suppression_lookup_failed_deferred");
+    assert.equal(logs[0].err, "NeonDbError");
+    assert.doesNotMatch(JSON.stringify(logs), /@|ETIMEDOUT/);         // no address, no raw error text
+    f.heal();
+    const r2 = await workerRun(stream, steps, f.store, logs, sent);
+    assert.deepEqual(r2, { sent: 2, skipped: 1, held: 0 });
+    assert.deepEqual(sent, ["a@example.com", "b@example.com"]);
+    assert.equal(steps[2].status, "skipped");                        // complaint still never sent
+  });
+}
+
+test("preSendDecision maps send / skip / defer", async () => {
+  const s = store(); const st = newPreSendRunState();
+  assert.deepEqual(await preSendDecision("new.trial@example.com", "sequence", s, st, () => {}), { action: "send" });
+  assert.deepEqual(await preSendDecision("angry@hotmail.example", "sequence", s, st, () => {}), { action: "skip", reason: "suppressed" });
+  assert.deepEqual(await preSendDecision("x@example.com", "sequence", flakyStore().store, st, () => {}), { action: "defer" });
+});
+
+test("workers: defer happens before any step write (no claim, no failed/skipped mark, no send)", () => {
+  const tn = readFileSync("src/app/api/worker/trial-nurture/route.ts", "utf8");
+  const tDefer = tn.indexOf('if (pre.action === "defer") { held++; continue; }');
+  const tClaim = tn.indexOf("const claimed = await db.insert(trialNurtureSteps)");
+  assert.ok(tDefer > 0 && tClaim > tDefer, "trial-nurture defers before claiming the step");
+  assert.doesNotMatch(tn, /status: "failed"[^\n]*suppress/i);
+  const seq = readFileSync("src/app/api/worker/sequences/route.ts", "utf8");
+  const sDefer = seq.indexOf('if (pre.action === "defer") continue;');
+  assert.ok(sDefer > 0 && seq.indexOf("generateUnsubscribeToken()", sDefer) > sDefer && seq.indexOf("sendEmail({", sDefer) > sDefer, "sequences defers before token/send");
+  assert.ok(seq.indexOf("preSendState = newPreSendRunState()") > 0 && tn.indexOf("preSendState = newPreSendRunState()") > 0);
 });
