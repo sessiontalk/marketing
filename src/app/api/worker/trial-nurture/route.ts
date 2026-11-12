@@ -13,6 +13,8 @@ import { mintConfirmEmailUrl } from "@/lib/trialNurture/confirmEmailLink";
 import { SIGNUP_PRODUCT, VERIFY_REMINDER_PRODUCT, contactTrialHistory, signupCreatedAtOf } from "@/lib/trialNurture/signupEnrolment";
 import { sendEmail, NURTURE_FROM_EMAIL, SIGNUP_NURTURE_FROM_EMAIL, NURTURE_REPLY_TO, LIST_UNSUBSCRIBE_MAILTO } from "@/lib/email";
 import { generateUnsubscribeToken } from "@/lib/tokens";
+import { dbSuppressionStore } from "@/lib/suppressionDb";
+import { preSendDecision, newPreSendRunState, sesConfigurationSetFor } from "@/lib/sendGuard";
 import { renderNurtureHtml, escapeHtml, htmlHasUnfilledPlaceholder, htmlToVisibleText, htmlHrefs } from "@/lib/trialNurture/htmlTemplate";
 import { listUnsubscribeHeaders, publicUnsubscribeUrl } from "@/lib/unsubscribe";
 import { softphoneDbNeedsRenumber, SOFTPHONE_SEQ_MARKER_STEP, SOFTPHONE_SEQ_MARKER_REASON } from "@/lib/trialNurture/softphoneStepMap";
@@ -26,6 +28,7 @@ async function run(req: NextRequest) {
   if (!isDripSendingEnabled()) return NextResponse.json({ enabled: false, sent: 0 });
 
   const now = new Date();
+  const preSendState = newPreSendRunState();
   const rows = await db.select({ t: trialAccounts, c: contacts }).from(trialAccounts)
     .innerJoin(contacts, eq(trialAccounts.contactId, contacts.id))
     .where(and(eq(trialAccounts.planStatus, "trial"), inArray(trialAccounts.product, [...NURTURE_PRODUCTS]))).limit(BATCH);
@@ -147,6 +150,16 @@ async function run(req: NextRequest) {
       held++;
       continue;
     }
+    // Pre-send check against every opt-out / SES suppression for this address (any contact row), before
+    // claiming: a failed lookup holds the step unclaimed (retried next run, nothing sent, never failed).
+    if (d.action === "send") {
+      const pre = await preSendDecision(c.email, "trial_nurture", dbSuppressionStore, preSendState);
+      if (pre.action === "defer") { held++; continue; }
+      if (pre.action === "skip") {
+        await db.insert(trialNurtureSteps).values({ trialAccountId: t.id, step: d.step, status: "skipped", reason: pre.reason }).onConflictDoNothing();
+        skipped++; continue;
+      }
+    }
     // Claim the step first (unique (trial, step)) so concurrent runs can never double-send.
     const claimed = await db.insert(trialNurtureSteps)
       .values({ trialAccountId: t.id, step: d.step, status: d.action === "skip" ? "skipped" : "sending", reason: d.action === "skip" ? d.reason : null })
@@ -175,7 +188,7 @@ async function run(req: NextRequest) {
       const r = await sendEmail({ to: c.email, subject, text, html,
         from: fromEmail, replyTo: NURTURE_REPLY_TO, bcc, headers,
         tags: { nurture: key, step: String(d.step) },
-        configurationSetName: process.env.SES_NURTURE_CONFIGURATION_SET || undefined });
+        configurationSetName: sesConfigurationSetFor("trial_nurture") });
       await db.update(trialNurtureSteps).set({ status: "sent", sesMessageId: r.id }).where(eq(trialNurtureSteps.id, claimed[0].id));
       // Observability: one CRM activity per send (contact timeline). Never fails the send.
       try {

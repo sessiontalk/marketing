@@ -13,6 +13,8 @@ import { generateUnsubscribeToken, getUnsubscribeUrl } from "@/lib/tokens";
 import { eq, and, lte } from "drizzle-orm";
 import { sequences } from "@/db/schema";
 import { isDripSendingEnabled, RETIRED_SEQUENCE_NAMES } from "@/lib/killSwitch";
+import { dbSuppressionStore } from "@/lib/suppressionDb";
+import { preSendDecision, newPreSendRunState, sesConfigurationSetFor } from "@/lib/sendGuard";
 
 const BATCH_SIZE = 50;
 
@@ -51,6 +53,7 @@ async function run(req: NextRequest) {
 
   let sent = 0;
   let failed = 0;
+  const preSendState = newPreSendRunState();
 
   for (const { enrollment, contact, sequence } of dueEnrollments) {
     if (RETIRED_SEQUENCE_NAMES.has(sequence.name)) continue; // legacy softphone copy never sends
@@ -92,6 +95,18 @@ async function run(req: NextRequest) {
       continue;
     }
 
+    // Pre-send check against every opt-out / SES suppression for this address (any contact row).
+    // A failed lookup leaves the enrolment untouched (still due, retried next run, nothing sent).
+    const pre = await preSendDecision(contact.email, "sequence", dbSuppressionStore, preSendState);
+    if (pre.action === "defer") continue;
+    if (pre.action === "skip") {
+      await db
+        .update(sequenceEnrollments)
+        .set({ status: "cancelled" })
+        .where(eq(sequenceEnrollments.id, enrollment.id));
+      continue;
+    }
+
     const unsubToken = generateUnsubscribeToken();
     await db.insert(unsubscribeTokens).values({
       token: unsubToken,
@@ -120,6 +135,7 @@ async function run(req: NextRequest) {
           sequence_id: enrollment.sequenceId,
           step: String(nextStepOrder),
         },
+        configurationSetName: sesConfigurationSetFor("sequence"),
       });
 
       await db.insert(sendLogs).values({
