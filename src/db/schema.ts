@@ -38,12 +38,17 @@ export const contacts = pgTable(
     updatedAt: timestamp("updated_at").defaultNow(),
     originalCreatedAt: timestamp("original_created_at"), // from cloud.sessiontalk.co.uk
     accountId: uuid("account_id").references(() => accounts.id), // CRM 360 — nullable link to accounts
+    // Signup attribution from the SessionCloud webhook (drizzle/0004, nullable).
+    signupSourcePage: varchar("signup_source_page", { length: 255 }), // e.g. /hosted-pbx-branded-softphones-googleads
+    signupMethod: varchar("signup_method", { length: 32 }), // website_inline | register_spa | google
+    adAttribution: jsonb("ad_attribution"), // gclid/gbraid/wbraid + UTMs
   },
   (t) => ({
     emailIdx: index("contacts_email_idx").on(t.email),
     countryIdx: index("contacts_country_idx").on(t.country),
     sourceIdx: index("contacts_source_idx").on(t.source),
     accountIdx: index("contacts_account_id_idx").on(t.accountId),
+    signupSourcePageIdx: index("contacts_signup_source_page_idx").on(t.signupSourcePage),
   })
 );
 
