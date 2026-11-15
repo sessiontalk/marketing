@@ -10,7 +10,11 @@
 /** Enrol-on-verify cap: the SessionCloud signup must be at most this old when enrolled. */
 export const SIGNUP_NURTURE_MAX_ACCOUNT_AGE_DAYS = 14;
 
+/** Worker re-check: skip a verify-reminder send more than this many hours after enrolment or signup. */
+export const VERIFY_REMINDER_MAX_AGE_HOURS = 48;
+
 const DAY_MS = 86_400_000;
+const HOUR_MS = 3_600_000;
 const SIGNUP_SEQUENCE_PRODUCT_NAMES: readonly string[] = ["signup_finish_setup", "signup_verify_reminder"];
 
 export interface TrialRowLike {
@@ -59,6 +63,18 @@ export function signupCreatedAtOf(c: { originalCreatedAt?: Date | null; createdA
 export function signupAccountTooOld(signupCreatedAt: Date | null | undefined, at: Date): boolean {
   if (!signupCreatedAt) return false;
   return at.getTime() - signupCreatedAt.getTime() > SIGNUP_NURTURE_MAX_ACCOUNT_AGE_DAYS * DAY_MS;
+}
+
+/** True when now is more than VERIFY_REMINDER_MAX_AGE_HOURS after enrolment or (if known) signup. Unknown signup date is ignored. */
+export function verifyReminderTooOld(opts: {
+  enrolledAt: Date;
+  signupCreatedAt?: Date | null;
+  now: Date;
+}): boolean {
+  const limit = VERIFY_REMINDER_MAX_AGE_HOURS * HOUR_MS;
+  if (opts.now.getTime() - opts.enrolledAt.getTime() > limit) return true;
+  if (opts.signupCreatedAt && opts.now.getTime() - opts.signupCreatedAt.getTime() > limit) return true;
+  return false;
 }
 
 /** Shared reason (null = eligible) for the enrol gate and the worker re-check. */

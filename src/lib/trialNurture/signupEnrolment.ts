@@ -14,11 +14,13 @@ import { sequenceKey } from "./schedule";
 import { signupHistoryReason } from "./signupGuards";
 export {
   SIGNUP_NURTURE_MAX_ACCOUNT_AGE_DAYS,
+  VERIFY_REMINDER_MAX_AGE_HOURS,
   isTrialRowActive,
   isTrialRowStale,
   contactTrialHistory,
   signupCreatedAtOf,
   signupAccountTooOld,
+  verifyReminderTooOld,
 } from "./signupGuards";
 
 export const SIGNUP_PRODUCT: Product = "signup_finish_setup";
