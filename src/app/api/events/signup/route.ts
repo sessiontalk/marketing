@@ -4,6 +4,7 @@ import { contacts, sequences, sequenceEnrollments, trialAccounts, processedEvent
 import { verifyWebhookSignature } from "@/lib/auth";
 import { eq, and } from "drizzle-orm";
 import { RETIRED_SEQUENCE_NAMES } from "@/lib/killSwitch";
+import { signupAttributionColumns } from "@/lib/adAttribution";
 import { isExcludedEmail, junkReason } from "@/lib/trialNurture/exclusions";
 import { emailDeliverabilityReason } from "@/lib/trialNurture/mailQuality";
 import {
@@ -76,6 +77,8 @@ export async function POST(req: NextRequest) {
   }
 
   const verified = email_verified === true || email_verified === "true";
+  // Optional signup_source_page / signup_method / ad_attribution (inline signup). Absent → {}.
+  const attribution = signupAttributionColumns(body);
   const createdAt = created_at || occurred_at;
 
   const [contact] = await db
@@ -91,6 +94,7 @@ export async function POST(req: NextRequest) {
       country,
       source: "webhook",
       emailVerified: verified,
+      ...attribution,
       originalCreatedAt: createdAt ? new Date(createdAt) : undefined,
     })
     .onConflictDoUpdate({
@@ -103,6 +107,8 @@ export async function POST(req: NextRequest) {
         country,
         ...(objectId ? { objectId } : {}),
         ...(verified ? { emailVerified: true } : {}),
+        // Only overwrite attribution when this signup carried it.
+        ...attribution,
         updatedAt: new Date(),
       },
     })
