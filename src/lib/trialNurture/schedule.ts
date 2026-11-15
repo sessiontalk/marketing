@@ -1,6 +1,6 @@
 import { mapLegacySoftphoneSentSteps } from "./softphoneStepMap";
 import { workspaceHost, stepLinkFields, formatTrialEndsDate } from "./links";
-import { signupHistoryReason } from "./signupGuards";
+import { signupHistoryReason, verifyReminderTooOld } from "./signupGuards";
 /**
  * SessionPBX (Teams Phone / Teams Business) trial nurture — activity-triggered.
  * Pure decision logic, no I/O, so it is unit-testable. Skip rules are re-checked at send time.
@@ -92,7 +92,11 @@ export function dueAt(step: Step, s: TrialState): Date | null {
 
 export function skipReason(step: Step, s: TrialState, now: Date): string | null {
   if (s.product === "signup_verify_reminder") {
-    return s.emailVerified ? "already_verified" : null;
+    if (s.emailVerified) return "already_verified";
+    if (verifyReminderTooOld({ enrolledAt: s.enrolledAt, signupCreatedAt: s.signupCreatedAt, now })) {
+      return "verify_reminder_too_old";
+    }
+    return null;
   }
   // Signup finish-setup: skip remaining steps once a project / trial exists.
   // Also re-check the contact's other trial rows and the signup age at enrolment (not at send time).

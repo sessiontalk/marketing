@@ -8,8 +8,10 @@ import { renderNurtureHtml } from "../src/lib/trialNurture/htmlTemplate";
 import {
   SIGNUP_PRODUCT,
   VERIFY_REMINDER_PRODUCT,
+  VERIFY_REMINDER_MAX_AGE_HOURS,
   canEnrolSignupNurture,
   canEnrolVerifyReminder,
+  verifyReminderTooOld,
 } from "../src/lib/trialNurture/signupEnrolment";
 import { junkReason, looksRandom } from "../src/lib/trialNurture/exclusions";
 import {
@@ -150,6 +152,45 @@ test("due at enrolledAt+24h; skipped once verified; finish_setup stays immediate
     decide({ ...reminderState(), product: "signup_finish_setup", emailVerified: true }, t0),
     { step: 1, action: "send" },
   );
+});
+
+test("verify-reminder age cap constant is 48 hours", () => {
+  assert.equal(VERIFY_REMINDER_MAX_AGE_HOURS, 48);
+});
+
+test("worker: verify-reminder is skipped more than 48h after enrolment", () => {
+  const at48 = new Date(t0.getTime() + 48 * 3_600_000);
+  assert.deepEqual(decide(reminderState(), at48), { step: 1, action: "send" });
+  assert.equal(verifyReminderTooOld({ enrolledAt: t0, now: at48 }), false);
+  const justOver = new Date(at48.getTime() + 1);
+  assert.deepEqual(decide(reminderState(), justOver), { step: 1, action: "skip", reason: "verify_reminder_too_old" });
+  assert.equal(verifyReminderTooOld({ enrolledAt: t0, now: justOver }), true);
+});
+
+test("worker: verify-reminder is skipped more than 48h after signup even if enrolment is recent", () => {
+  const enrolled = new Date(t0.getTime() + 10 * 3_600_000);
+  const signup = new Date(t0.getTime() - 40 * 3_600_000);
+  // sendAt is enrolledAt+24h (due): still < 48h after enrolment, > 48h after signup
+  const sendAt = new Date(enrolled.getTime() + 24 * 3_600_000);
+  assert.equal(sendAt.getTime() - enrolled.getTime() < 48 * 3_600_000, true);
+  assert.equal(sendAt.getTime() - signup.getTime() > 48 * 3_600_000, true);
+  assert.deepEqual(
+    decide(reminderState({ enrolledAt: enrolled, trialStartedAt: enrolled, signupCreatedAt: signup }), sendAt),
+    { step: 1, action: "skip", reason: "verify_reminder_too_old" },
+  );
+});
+
+test("worker: already_verified takes precedence over the age cap", () => {
+  const justOver = new Date(t0.getTime() + 48 * 3_600_000 + 1);
+  assert.deepEqual(
+    decide(reminderState({ emailVerified: true }), justOver),
+    { step: 1, action: "skip", reason: "already_verified" },
+  );
+});
+
+test("worker: unknown signup date only uses enrolment age", () => {
+  const at24 = new Date(t0.getTime() + D);
+  assert.deepEqual(decide(reminderState({ signupCreatedAt: null }), at24), { step: 1, action: "send" });
 });
 
 test("enrolment gates: reminder allows unverified; finish_setup does not; junk still blocks both", () => {
