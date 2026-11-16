@@ -3,7 +3,8 @@ import { db } from "@/db";
 import { activities, contacts, trialAccounts, trialNurtureSteps, unsubscribeTokens } from "@/db/schema";
 import { and, eq, inArray, ne, sql } from "drizzle-orm";
 import { isDripSendingEnabled } from "@/lib/killSwitch";
-import { decide, render, renderSubject, Step, NURTURE_PRODUCTS, sequenceKey } from "@/lib/trialNurture/schedule";
+import { decide, render, renderSubject, Step, NURTURE_PRODUCTS, sequenceKey, TrialState } from "@/lib/trialNurture/schedule";
+import { selectPendingTrialNurtureBatch, TRIAL_NURTURE_BATCH } from "@/lib/trialNurture/pendingBatch";
 import { copyFor } from "@/lib/trialNurture/copy";
 import { missingLinkFields, assertSafeNurtureText, UNFILLED_PLACEHOLDER_RE } from "@/lib/trialNurture/links";
 import { trialNurtureBccAddress } from "@/lib/trialNurture/bcc";
@@ -17,7 +18,7 @@ import { renderNurtureHtml, escapeHtml, htmlHasUnfilledPlaceholder, htmlToVisibl
 import { listUnsubscribeHeaders, publicUnsubscribeUrl } from "@/lib/unsubscribe";
 import { softphoneDbNeedsRenumber, SOFTPHONE_SEQ_MARKER_STEP, SOFTPHONE_SEQ_MARKER_REASON } from "@/lib/trialNurture/softphoneStepMap";
 
-const BATCH = 50;
+const BATCH = TRIAL_NURTURE_BATCH;
 
 async function run(req: NextRequest) {
   if (!process.env.CRON_SECRET || req.headers.get("authorization") !== `Bearer ${process.env.CRON_SECRET}`)
@@ -26,9 +27,60 @@ async function run(req: NextRequest) {
   if (!isDripSendingEnabled()) return NextResponse.json({ enabled: false, sent: 0 });
 
   const now = new Date();
-  const rows = await db.select({ t: trialAccounts, c: contacts }).from(trialAccounts)
+  // Load trial-status nurture rows with their steps, then drop non-pending
+  // (sequence complete or not yet due) before the 50 limit, ordered due-first.
+  // Using decide()/dueAt() for pending keeps verify-reminder too_old skips
+  // selectable and avoids breaking generic_softphone / signup_finish_setup / teams.
+  const candidates = await db.select({ t: trialAccounts, c: contacts }).from(trialAccounts)
     .innerJoin(contacts, eq(trialAccounts.contactId, contacts.id))
-    .where(and(eq(trialAccounts.planStatus, "trial"), inArray(trialAccounts.product, [...NURTURE_PRODUCTS]))).limit(BATCH);
+    .where(and(eq(trialAccounts.planStatus, "trial"), inArray(trialAccounts.product, [...NURTURE_PRODUCTS])));
+  const candidateIds = candidates.map((rec) => rec.t.id);
+  const stepRows = candidateIds.length
+    ? await db.select({
+        trialAccountId: trialNurtureSteps.trialAccountId,
+        step: trialNurtureSteps.step,
+        status: trialNurtureSteps.status,
+        createdAt: trialNurtureSteps.createdAt,
+      }).from(trialNurtureSteps).where(inArray(trialNurtureSteps.trialAccountId, candidateIds))
+    : [];
+  const stepsByTrial = new Map<string, typeof stepRows>();
+  for (const s of stepRows) {
+    const list = stepsByTrial.get(s.trialAccountId) ?? [];
+    list.push(s);
+    stepsByTrial.set(s.trialAccountId, list);
+  }
+  const pending = selectPendingTrialNurtureBatch(
+    candidates.map((rec) => {
+      const done = stepsByTrial.get(rec.t.id) ?? [];
+      const sentTimes = done.filter((r) => r.status === "sent" || r.status === "sending").map((r) => (r.createdAt ? new Date(r.createdAt).getTime() : 0));
+      const lastSentAt = sentTimes.length ? new Date(Math.max(...sentTimes)) : null;
+      const state: TrialState = {
+        enrolledAt: rec.t.enrolledAt,
+        product: rec.t.product as TrialState["product"],
+        trialStartedAt: rec.t.trialStartedAt,
+        trialEndsAt: rec.t.trialEndsAt,
+        projectCreatedAt: rec.t.projectCreatedAt,
+        extensionCount: rec.t.extensionCount,
+        softphoneFirstLoginAt: rec.t.softphoneFirstLoginAt,
+        firstCallAt: rec.t.firstCallAt,
+        carrierConnectedAt: rec.t.carrierConnectedAt,
+        salesCallBookedAt: rec.t.salesCallBookedAt,
+        salesCallHeldAt: rec.t.salesCallHeldAt,
+        lastInboundReplyAt: rec.t.lastInboundReplyAt,
+        paymentMethodAddedAt: rec.t.paymentMethodAddedAt,
+        planStatus: rec.t.planStatus as TrialState["planStatus"],
+        unsubscribed: !!rec.c.unsubscribed,
+        emailVerified: !!rec.c.emailVerified,
+        sentSteps: done.map((r) => r.step as Step),
+        lastSentAt,
+        signupCreatedAt: signupCreatedAtOf(rec.c),
+      };
+      return { id: rec.t.id, state, row: rec };
+    }),
+    now,
+    BATCH,
+  );
+  const rows = pending.map((p) => p.row);
   let sent = 0, skipped = 0, failed = 0, held = 0;
 
   for (const rec of rows) {
