@@ -2,3 +2,5 @@
 *.template.html
 *.template.txt
 *.csv
+# List counts (contain addresses) stay off git too.
+counts.json
