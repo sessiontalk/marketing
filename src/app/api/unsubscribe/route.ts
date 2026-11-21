@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
+import { withDbErrors } from "@/lib/dbErrors";
 import { contacts, unsubscribeTokens } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { handleUnsubscribe, makeUnsubscribeStore, postToken } from "@/lib/unsubscribe";
@@ -24,7 +25,7 @@ function html({ status, html }: { status: number; html: string }) {
 }
 
 /** Shows a confirm page only. Never unsubscribes (scanners and prefetchers follow GET links). */
-export async function GET(req: NextRequest) {
+async function handleGET(req: NextRequest) {
   return html(await handleUnsubscribe("GET", req.nextUrl.searchParams.get("token"), store));
 }
 
@@ -32,7 +33,7 @@ export async function GET(req: NextRequest) {
  * Unsubscribes. Used by the confirm button and by RFC 8058 one-click: the mailbox provider POSTs
  * "List-Unsubscribe=One-Click" to the List-Unsubscribe URL, which carries ?token= in the query.
  */
-export async function POST(req: NextRequest) {
+async function handlePOST(req: NextRequest) {
   let form: FormData | null = null;
   const queryToken = req.nextUrl.searchParams.get("token");
   if (!queryToken) {
@@ -40,3 +41,6 @@ export async function POST(req: NextRequest) {
   }
   return html(await handleUnsubscribe("POST", postToken(queryToken, form), store));
 }
+
+export const GET = withDbErrors(handleGET);
+export const POST = withDbErrors(handlePOST);

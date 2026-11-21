@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
+import { withDbErrors } from "@/lib/dbErrors";
 import { contacts } from "@/db/schema";
 import { parse } from "csv-parse/sync";
 import { eq } from "drizzle-orm";
 
-export async function POST(req: NextRequest) {
+async function handlePOST(req: NextRequest) {
   const formData = await req.formData();
   const file = formData.get("file") as File;
 
@@ -72,3 +73,5 @@ export async function POST(req: NextRequest) {
     errors: errors.slice(0, 10), // First 10 errors only
   });
 }
+
+export const POST = withDbErrors(handlePOST);

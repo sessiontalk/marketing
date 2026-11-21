@@ -22,12 +22,13 @@
     "@react-email/components": "^0.0.25",
     "react-email": "^3.0.0",
     "drizzle-orm": "^0.36.0",
-    "@neondatabase/serverless": "^0.10.0",
+    "pg": "^8.13.1",
     "csv-parse": "^5.6.0",
     "zod": "^3.24.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "@types/pg": "^8.11.10",
     "@types/react": "^18.3.0",
     "@types/react-dom": "^18.3.0",
     "typescript": "^5.6.0",

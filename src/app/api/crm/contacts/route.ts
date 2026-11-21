@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
+import { withDbErrors } from "@/lib/dbErrors";
 import { contacts } from "@/db/schema";
 import { requireApiKey } from "@/lib/api-auth";
 import { count, desc, ilike, or, SQL } from "drizzle-orm";
 
-export async function GET(req: NextRequest) {
+async function handleGET(req: NextRequest) {
   const denied = requireApiKey(req);
   if (denied) return denied;
 
@@ -63,7 +64,7 @@ export async function GET(req: NextRequest) {
   });
 }
 
-export async function POST(req: NextRequest) {
+async function handlePOST(req: NextRequest) {
   const denied = requireApiKey(req);
   if (denied) return denied;
 
@@ -114,3 +115,6 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({ contact }, { status: 200 });
 }
+
+export const GET = withDbErrors(handleGET);
+export const POST = withDbErrors(handlePOST);

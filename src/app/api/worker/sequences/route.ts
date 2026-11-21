@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
+import { withDbErrors } from "@/lib/dbErrors";
 import {
   sequenceEnrollments,
   sequenceSteps,
@@ -163,5 +164,6 @@ async function run(req: NextRequest) {
   });
 }
 
-export const GET = run;
-export const POST = run;
+const handler = withDbErrors(run);
+export const GET = handler; // system cron (crm-worker) invokes GET with Bearer CRON_SECRET
+export const POST = handler;

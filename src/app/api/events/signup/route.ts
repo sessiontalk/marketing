@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
+import { withDbErrors } from "@/lib/dbErrors";
 import { contacts, sequences, sequenceEnrollments, trialAccounts, processedEvents } from "@/db/schema";
 import { verifyWebhookSignature } from "@/lib/auth";
 import { eq, and } from "drizzle-orm";
@@ -23,7 +24,7 @@ import {
  * (no project required). Legacy Welcome Drip sequences stay retired/skipped.
  * Idempotent via event_id → processed_events (once per account).
  */
-export async function POST(req: NextRequest) {
+async function handlePOST(req: NextRequest) {
   const rawBody = await req.text();
   const signature = req.headers.get("x-webhook-signature") || "";
 
@@ -199,3 +200,5 @@ export async function POST(req: NextRequest) {
     nurture,
   });
 }
+
+export const POST = withDbErrors(handlePOST);

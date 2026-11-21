@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
+import { withDbErrors } from "@/lib/dbErrors";
 import { activities, contacts, trialAccounts, trialNurtureSteps, unsubscribeTokens } from "@/db/schema";
 import { and, eq, inArray, ne, sql } from "drizzle-orm";
 import { isDripSendingEnabled } from "@/lib/killSwitch";
@@ -195,5 +196,6 @@ async function run(req: NextRequest) {
   return NextResponse.json({ enabled: true, processed: rows.length, sent, skipped, failed, held });
 }
 
-export const GET = run;  // Vercel Cron invokes GET
-export const POST = run;
+const handler = withDbErrors(run);
+export const GET = handler; // system cron (crm-worker) invokes GET with Bearer CRON_SECRET
+export const POST = handler;

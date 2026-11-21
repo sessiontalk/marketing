@@ -8,7 +8,7 @@ import type { SuppressionStore } from "./suppression";
 /** Tokens are 32 random bytes as hex (see tokens.ts). Anything else is rejected before any DB access. */
 export const UNSUBSCRIBE_TOKEN_RE = /^[a-f0-9]{64}$/;
 
-/** Production CRM host (Vercel). Used when NEXT_PUBLIC_APP_URL is unset or not https. */
+/** Production CRM host. Used when NEXT_PUBLIC_APP_URL is unset or not https. */
 export const DEFAULT_PUBLIC_BASE_URL = "https://marketing.sessiontalk.co.uk";
 
 export function isValidUnsubscribeToken(token: unknown): token is string {

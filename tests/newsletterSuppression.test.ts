@@ -86,7 +86,7 @@ test("unsubscribe route records via the suppression store and GET has no write p
   const src = readFileSync("src/app/api/unsubscribe/route.ts", "utf8");
   assert.match(src, /makeUnsubscribeStore\(/);
   assert.match(src, /suppression: dbSuppressionStore/);
-  const getBody = src.slice(src.indexOf("export async function GET"), src.indexOf("export async function POST"));
+  const getBody = src.slice(src.indexOf("async function handleGET"), src.indexOf("async function handlePOST"));
   assert.doesNotMatch(getBody, /update\(|insert\(|suppress\(/);
 });
 

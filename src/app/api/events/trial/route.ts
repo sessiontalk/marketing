@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
+import { withDbErrors } from "@/lib/dbErrors";
 import { contacts, trialAccounts, processedEvents, trialNurtureSteps } from "@/db/schema";
 import { verifyWebhookSignature } from "@/lib/auth";
 import { TrialEvent } from "@/lib/trialNurture/events";
@@ -33,7 +34,7 @@ import { isExcludedEmail, junkReason } from "@/lib/trialNurture/exclusions";
  * product sequence and real app_id. Signup steps do not map onto product steps
  * (see SIGNUP_TO_PRODUCT_STEP_MAP), so product sentSteps start empty — no dupes.
  */
-export async function POST(req: NextRequest) {
+async function handlePOST(req: NextRequest) {
   const raw = await req.text();
   const secret = process.env.WEBHOOK_SECRET;
   if (!secret) return NextResponse.json({ error: "Webhook secret not configured" }, { status: 500 });
@@ -201,3 +202,5 @@ export async function POST(req: NextRequest) {
   await db.update(trialAccounts).set(set).where(eq(trialAccounts.appId, e.app_id));
   return NextResponse.json({ ok: true });
 }
+
+export const POST = withDbErrors(handlePOST);

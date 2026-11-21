@@ -1,0 +1,7 @@
+# /etc/cron.d/marketing-crm  (root:root 0644). Replaces the old vercel.json crons;
+# same schedule, so nurture timing is unchanged. Sends nothing while
+# DRIP_SENDING_ENABLED is unset in /etc/marketing-crm/app.env (the default).
+SHELL=/bin/sh
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+*/5  * * * * crm /usr/local/bin/crm-worker sequences
+*/10 * * * * crm /usr/local/bin/crm-worker trial-nurture

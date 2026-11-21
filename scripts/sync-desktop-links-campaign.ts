@@ -1,5 +1,5 @@
 import fs from "fs";
-import { neon } from "@neondatabase/serverless";
+import { Pool } from "pg";
 
 async function main() {
   const logPath = process.argv[2];
@@ -9,7 +9,13 @@ async function main() {
     return;
   }
 
-  const sql = neon(process.env.DATABASE_URL);
+  // node-postgres (was the Neon HTTP driver). Same tagged-template call sites:
+  // each ${...} becomes a $n bind parameter and the result is the rows array.
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 1 });
+  const sql = async (strings: TemplateStringsArray, ...values: unknown[]) => {
+    const text = strings.reduce((acc, s, i) => acc + s + (i < values.length ? `$${i + 1}` : ""), "");
+    return (await pool.query(text, values)).rows;
+  };
   const lines = fs.readFileSync(logPath, "utf8").split(/\r?\n/).filter(Boolean);
   let contactsUpserted = 0;
   let logsInserted = 0;
@@ -59,6 +65,7 @@ async function main() {
   }
 
   console.log(JSON.stringify({ logPath, sends: lines.length, contactsUpserted, logsInserted, logsSkipped }, null, 2));
+  await pool.end();
 }
 
 main().catch((error) => {

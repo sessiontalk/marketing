@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
+import { withDbErrors } from "@/lib/dbErrors";
 import { contacts } from "@/db/schema";
 import { requireApiKey } from "@/lib/api-auth";
 import { eq } from "drizzle-orm";
 
 type RouteContext = { params: { id: string } };
 
-export async function GET(req: NextRequest, ctx: RouteContext) {
+async function handleGET(req: NextRequest, ctx: RouteContext) {
   const denied = requireApiKey(req);
   if (denied) return denied;
 
@@ -18,7 +19,7 @@ export async function GET(req: NextRequest, ctx: RouteContext) {
   return NextResponse.json({ contact });
 }
 
-export async function PATCH(req: NextRequest, ctx: RouteContext) {
+async function handlePATCH(req: NextRequest, ctx: RouteContext) {
   const denied = requireApiKey(req);
   if (denied) return denied;
 
@@ -60,3 +61,6 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
   }
   return NextResponse.json({ contact });
 }
+
+export const GET = withDbErrors(handleGET);
+export const PATCH = withDbErrors(handlePATCH);

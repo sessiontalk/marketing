@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { withDbErrors } from "@/lib/dbErrors";
 import { COOKIE_NAME, verifySessionToken } from "@/lib/session";
 import { buildTestSend } from "@/lib/trialNurture/testSequence";
 import { sendEmail, NURTURE_FROM_EMAIL, NURTURE_REPLY_TO, LIST_UNSUBSCRIBE_MAILTO } from "@/lib/email";
@@ -10,7 +11,7 @@ export const dynamic = "force-dynamic";
  * address(es). No DB access at all (no trial_accounts / step rows / unsubscribe tokens), no BCC,
  * independent of DRIP_SENDING_ENABLED. Headers match production (List-Unsubscribe with a placeholder token).
  */
-export async function POST(req: NextRequest) {
+async function handlePOST(req: NextRequest) {
   const session = await verifySessionToken(req.cookies.get(COOKIE_NAME)?.value);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   let body: any;
@@ -44,3 +45,5 @@ export async function POST(req: NextRequest) {
     ok: results.filter((r) => r.id).length, failed: results.filter((r) => r.error).length }));
   return NextResponse.json({ ok: results.length === expected && results.every((r) => r.id), results });
 }
+
+export const POST = withDbErrors(handlePOST);
