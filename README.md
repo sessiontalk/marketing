@@ -114,6 +114,39 @@ The welcome drip sequence:
 `DRIP_SENDING_ENABLED` must equal `true` for /api/worker/sequences or /api/worker/trial-nurture to send anything. Unset/any other value = no-op. Both workers also require `CRON_SECRET` (system cron on the droplet sends `Authorization: Bearer $CRON_SECRET` on a GET via `deploy/crm-worker.sh`). On a new droplet `DRIP_SENDING_ENABLED` stays unset (off).
 The legacy softphone "Welcome Drip" sequence is retired in code and can never send.
 
+## Trial-nurture queue, backlog guard and alerts
+
+Incident 17-25 Nov 2026: `/api/worker/trial-nurture` selected `plan_status='trial' LIMIT 50` with no
+ORDER BY and never retired finished rows, so once >50 dead rows existed no new signup/trial got a
+first email, silently. Rules now (`src/lib/trialNurture/queue.ts`, tests in `tests/nurtureQueue.test.ts`):
+
+- **Queue**: `plan_status='trial'`, nurture product, `trial_ends_at` null or in the future; ordered
+  `updated_at ASC NULLS FIRST, id`; 50 per run; every picked row is touched (`updated_at = now`) so the
+  batch rotates and every row is reached within ceil(N/50) runs.
+- **Retire**: when `decide()` returns a permanent stop (trial_ended, unsubscribed, no_sequence) or every
+  step of the sequence is terminal, the worker sets `plan_status='ended'` (no migration: varchar).
+  Revived to `'trial'` by trial.started (signup row upgrade), email.verified (retired verify reminder
+  → finish_setup) and plan.changed with a future `trial_ends_at`.
+- **Backlog guard** (Head of Marketing decides on late first emails): a row never emailed whose next
+  email was due more than `NURTURE_LATE_FIRST_STEP_MAX_HOURS` (default 12) ago is handled by
+  `NURTURE_LATE_FIRST_STEP_POLICY`: `hold` (default: not sent, not claimed, retried each run),
+  `skip` (step recorded skipped `late_first_step`; later steps continue at max 1/day) or `send`.
+  Optional `NURTURE_LATE_FIRST_STEP_ENROLLED_BEFORE` (ISO time) limits the guard to older enrolments.
+- **Alerts** (`src/lib/trialNurture/alerts.ts`): every alert is a `console.error` JSON line with
+  `"level":"alert"`. Email alerts are OFF unless `NURTURE_ALERT_EMAIL_ENABLED=true`; recipients
+  `NURTURE_ALERT_TO` (default naumansulaiman@googlemail.com, comma-separated), from support@.
+  - per run: any failed send (full error message also logged as `trial_nurture_send_failed`);
+  - daily 07:00 UTC `/api/worker/nurture-health` (Bearer CRON_SECRET, read-only, 503 when unhealthy):
+    `first_step_sla` (queued row never emailed, next email >2h overdue), `no_sends_24h` (rows overdue
+    and 0 sent in 24h), `send_failed` (failed steps in 24h). SES-side cross-check (S3 SES event
+    archive vs CRM sends) stays outside the app.
+
+Read-only checks for someone with CRM DB access:
+
+```sql
+select product, count(*) from trial_accounts where plan_status='trial' group by 1;
+```
+
 ## Unsubscribes and suppression
 
 One flag is the marketing suppression for every sender: `contacts.unsubscribed = true` (plus `contacts.unsubscribed_at`), matched on `lower(email)`. No separate table.

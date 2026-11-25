@@ -5,3 +5,5 @@ SHELL=/bin/sh
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 */5  * * * * crm /usr/local/bin/crm-worker sequences
 */10 * * * * crm /usr/local/bin/crm-worker trial-nurture
+# Daily nurture health check (first email >2h overdue, 0 sent in 24h, failed sends). 07:00 server time.
+0 7 * * * crm /usr/local/bin/crm-worker nurture-health

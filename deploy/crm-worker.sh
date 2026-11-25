@@ -1,6 +1,6 @@
 #!/bin/sh
 # /usr/local/bin/crm-worker (root:root 0755). Called by /etc/cron.d/marketing-crm.
-# Usage: crm-worker sequences|trial-nurture
+# Usage: crm-worker sequences|trial-nurture|nurture-health
 # Reads CRON_SECRET from /etc/marketing-crm/cron.env (root:crm 0640) and calls the
 # local app with the same GET + "Authorization: Bearer $CRON_SECRET" that Vercel
 # Cron used. The secret is passed to curl on stdin (--config -), so it never
@@ -8,8 +8,8 @@
 set -eu
 
 case "${1:-}" in
-  sequences|trial-nurture) job="$1" ;;
-  *) echo "usage: crm-worker sequences|trial-nurture" >&2; exit 2 ;;
+  sequences|trial-nurture|nurture-health) job="$1" ;;
+  *) echo "usage: crm-worker sequences|trial-nurture|nurture-health" >&2; exit 2 ;;
 esac
 
 ENV_FILE=/etc/marketing-crm/cron.env
