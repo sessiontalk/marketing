@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { activities, contacts, trialAccounts, trialNurtureSteps, unsubscribeTokens } from "@/db/schema";
-import { and, eq, inArray, ne, sql } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { isDripSendingEnabled } from "@/lib/killSwitch";
-import { decide, render, renderSubject, Step, NURTURE_PRODUCTS, sequenceKey } from "@/lib/trialNurture/schedule";
+import { decide, dueAt, render, renderSubject, Step, NURTURE_PRODUCTS, sequenceKey } from "@/lib/trialNurture/schedule";
+import { NURTURE_BATCH, NURTURE_ENDED_STATUS, retireReason, lateFirstStepConfig, lateFirstStepAction } from "@/lib/trialNurture/queue";
+import { nurtureAlert, errorMessage } from "@/lib/trialNurture/alerts";
 import { copyFor } from "@/lib/trialNurture/copy";
 import { missingLinkFields, assertSafeNurtureText, UNFILLED_PLACEHOLDER_RE } from "@/lib/trialNurture/links";
 import { trialNurtureBccAddress } from "@/lib/trialNurture/bcc";
@@ -17,8 +19,6 @@ import { renderNurtureHtml, escapeHtml, htmlHasUnfilledPlaceholder, htmlToVisibl
 import { listUnsubscribeHeaders, publicUnsubscribeUrl } from "@/lib/unsubscribe";
 import { softphoneDbNeedsRenumber, SOFTPHONE_SEQ_MARKER_STEP, SOFTPHONE_SEQ_MARKER_REASON } from "@/lib/trialNurture/softphoneStepMap";
 
-const BATCH = 50;
-
 async function run(req: NextRequest) {
   if (!process.env.CRON_SECRET || req.headers.get("authorization") !== `Bearer ${process.env.CRON_SECRET}`)
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -26,10 +26,34 @@ async function run(req: NextRequest) {
   if (!isDripSendingEnabled()) return NextResponse.json({ enabled: false, sent: 0 });
 
   const now = new Date();
+  // Queue = rows that can still act (mirror of isQueueCandidate in lib/trialNurture/queue.ts),
+  // least recently processed first. Without the filter + ORDER BY the same 50 dead rows were
+  // returned every run and new signups/trials never got a first email (17-25 Nov 2026).
   const rows = await db.select({ t: trialAccounts, c: contacts }).from(trialAccounts)
     .innerJoin(contacts, eq(trialAccounts.contactId, contacts.id))
-    .where(and(eq(trialAccounts.planStatus, "trial"), inArray(trialAccounts.product, [...NURTURE_PRODUCTS]))).limit(BATCH);
-  let sent = 0, skipped = 0, failed = 0, held = 0;
+    .where(and(
+      eq(trialAccounts.planStatus, "trial"),
+      inArray(trialAccounts.product, [...NURTURE_PRODUCTS]),
+      or(isNull(trialAccounts.trialEndsAt), gt(trialAccounts.trialEndsAt, now)),
+    ))
+    .orderBy(sql`${trialAccounts.updatedAt} asc nulls first`, asc(trialAccounts.id))
+    .limit(NURTURE_BATCH);
+  // Touch every picked row so the next run starts with the rows not seen for longest (rotation).
+  if (rows.length) {
+    await db.update(trialAccounts).set({ updatedAt: now }).where(inArray(trialAccounts.id, rows.map((r) => r.t.id)));
+  }
+  const late = lateFirstStepConfig();
+  let sent = 0, skipped = 0, failed = 0, held = 0, retired = 0, heldLate = 0;
+  const failures: Array<{ trialAccountId: string; appId: string; step: number; error: string }> = [];
+  // Finished rows leave the queue: plan_status='ended' (revived by trial.started / email.verified / plan.changed).
+  const retire = async (id: string, product: string, steps: number[], dec: ReturnType<typeof decide>) => {
+    const why = retireReason(product, steps, dec);
+    if (!why) return;
+    await db.update(trialAccounts).set({ planStatus: NURTURE_ENDED_STATUS, updatedAt: new Date() })
+      .where(and(eq(trialAccounts.id, id), eq(trialAccounts.planStatus, "trial")));
+    console.log(JSON.stringify({ level: "info", msg: "trial_nurture_retired", trialAccountId: id, reason: why }));
+    retired++;
+  };
 
   for (const rec of rows) {
     let t = rec.t;
@@ -88,13 +112,23 @@ async function run(req: NextRequest) {
     const sentTimes = done.filter((r) => r.status === "sent" || r.status === "sending").map((r) => (r.createdAt ? new Date(r.createdAt).getTime() : 0));
     const lastSentAt = sentTimes.length ? new Date(Math.max(...sentTimes)) : null;
     let d = decide({ ...t, product: t.product as any, planStatus: t.planStatus as any, unsubscribed: !!c.unsubscribed, emailVerified: !!c.emailVerified, sentSteps: done.map((r) => r.step as Step), lastSentAt, ...signupGuard }, now);
-    if (d.action === "wait" || d.action === "stop") continue;
+    if (d.action === "wait" || d.action === "stop") { await retire(t.id, t.product, done.map((r) => r.step), d); continue; }
     // Sales sends email 05 manually for these tenants: record step 5 as skipped, never send it.
     if (d.action === "send" && d.step === 5 && isStep5ManualWorkspace(t)) d = { step: 5, action: "skip", reason: "manual_sales" };
     const key = sequenceKey(t.product)!;
     const copy = copyFor(key, d.step)!;
     // Copy not final (e.g. hosted_pbx / generic_softphone drafts): hold, don't send or claim.
     if (d.action === "send" && !copy.final) { held++; continue; }
+    // Backlog guard: a never-emailed row whose first email is long overdue is held (default) or
+    // skipped until Head of Marketing decides; NURTURE_LATE_FIRST_STEP_POLICY / _MAX_HOURS.
+    if (d.action === "send") {
+      const lateAction = lateFirstStepAction({ everEmailed: sentTimes.length > 0, dueAt: dueAt(d.step, { ...t, product: t.product as any, planStatus: t.planStatus as any, unsubscribed: !!c.unsubscribed, emailVerified: !!c.emailVerified, sentSteps: done.map((r) => r.step as Step), lastSentAt }), now, enrolledAt: t.enrolledAt, ...late });
+      if (lateAction === "hold") {
+        console.log(JSON.stringify({ level: "info", msg: "trial_nurture_hold_late_first_step", trialAccountId: t.id, appId: t.appId, step: d.step }));
+        held++; heldLate++; continue;
+      }
+      if (lateAction === "skip") d = { step: d.step, action: "skip", reason: "late_first_step" };
+    }
     // Hold (don't send a broken link) when sip_domain / accountName needed by this step is missing.
     let verifyUrl: string | null = null;
     if (d.action === "send" && t.product === VERIFY_REMINDER_PRODUCT) {
@@ -109,7 +143,7 @@ async function run(req: NextRequest) {
         t = { ...t, product: SIGNUP_PRODUCT };
         done = [];
         d = decide({ ...t, product: t.product as any, planStatus: t.planStatus as any, unsubscribed: !!c.unsubscribed, emailVerified: true, sentSteps: [], lastSentAt, ...signupGuard }, now);
-        if (d.action === "wait" || d.action === "stop") continue;
+        if (d.action === "wait" || d.action === "stop") { await retire(t.id, t.product, [], d); continue; }
       } else if (!minted.ok) {
         console.log(JSON.stringify({
           level: "info", msg: "trial_nurture_hold_verify_url",
@@ -188,11 +222,17 @@ async function run(req: NextRequest) {
       console.log(JSON.stringify({ level: "info", msg: "trial_nurture_sent", trialAccountId: t.id, appId: t.appId, sequence: key, step: d.step, sesMessageId: r.id }));
       sent++;
     } catch (err: any) {
-      await db.update(trialNurtureSteps).set({ status: "failed", reason: String(err?.name || "error").slice(0, 64) }).where(eq(trialNurtureSteps.id, claimed[0].id));
+      const error = errorMessage(err);
+      await db.update(trialNurtureSteps).set({ status: "failed", reason: error.slice(0, 64) }).where(eq(trialNurtureSteps.id, claimed[0].id));
+      console.error(JSON.stringify({ level: "error", msg: "trial_nurture_send_failed", trialAccountId: t.id, appId: t.appId, sequence: key, step: d.step, error }));
+      failures.push({ trialAccountId: t.id, appId: t.appId, step: d.step, error });
       failed++;
     }
   }
-  return NextResponse.json({ enabled: true, processed: rows.length, sent, skipped, failed, held });
+  if (failures.length) {
+    await nurtureAlert("send_failed", `${failures.length} nurture send(s) failed`, { failures: failures.slice(0, 20) });
+  }
+  return NextResponse.json({ enabled: true, processed: rows.length, sent, skipped, failed, held, heldLate, retired });
 }
 
 export const GET = run;  // Vercel Cron invokes GET

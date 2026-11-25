@@ -1,6 +1,7 @@
 {
   "crons": [
     { "path": "/api/worker/sequences", "schedule": "*/5 * * * *" },
-    { "path": "/api/worker/trial-nurture", "schedule": "*/10 * * * *" }
+    { "path": "/api/worker/trial-nurture", "schedule": "*/10 * * * *" },
+    { "path": "/api/worker/nurture-health", "schedule": "0 7 * * *" }
   ]
 }

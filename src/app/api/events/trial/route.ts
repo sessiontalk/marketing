@@ -21,6 +21,7 @@ import {
 } from "@/lib/trialNurture/signupEnrolment";
 import { signupHistoryReason } from "@/lib/trialNurture/signupGuards";
 import { isExcludedEmail, junkReason } from "@/lib/trialNurture/exclusions";
+import { NURTURE_ENDED_STATUS } from "@/lib/trialNurture/queue";
 
 /**
  * SessionCloud → CRM activity events for NEW SessionPBX (Teams/Hosted) trials.
@@ -65,7 +66,9 @@ export async function POST(req: NextRequest) {
     const nowVerify = new Date();
     // Active = paid, or 'trial' not past trial_ends_at (a stale 'trial' row is not active).
     const active = existing.filter((r) => isTrialRowActive(r, nowVerify));
-    const reminder = active.find((r) => r.product === VERIFY_REMINDER_PRODUCT);
+    // A reminder row the worker retired (plan_status='ended' after its one step) is still upgraded.
+    const reminder = active.find((r) => r.product === VERIFY_REMINDER_PRODUCT)
+      ?? existing.find((r) => r.product === VERIFY_REMINDER_PRODUCT && r.planStatus === NURTURE_ENDED_STATUS);
     const finish = active.find((r) => r.product === SIGNUP_PRODUCT);
     const productTrial = active.find((r) => !SIGNUP_SEQUENCE_PRODUCTS.includes(r.product as typeof SIGNUP_PRODUCT));
     // Any prior product trial (cancelled / expired / stale included) or any project blocks signup nurture.
@@ -85,6 +88,7 @@ export async function POST(req: NextRequest) {
     if (reminder) {
       await db.update(trialAccounts).set({
         product: SIGNUP_PRODUCT,
+        planStatus: "trial",
         updatedAt: new Date(),
       }).where(eq(trialAccounts.id, reminder.id));
       await db.delete(trialNurtureSteps).where(eq(trialNurtureSteps.trialAccountId, reminder.id));
@@ -157,6 +161,7 @@ export async function POST(req: NextRequest) {
         trialStartedAt: at,
         trialEndsAt: e.trial_ends_at ? new Date(e.trial_ends_at) : signupRow.trialEndsAt,
         projectCreatedAt: at,
+        planStatus: "trial", // the worker may have retired the signup row ('ended'); the product trial starts fresh
         updatedAt: new Date(),
       }).where(eq(trialAccounts.id, signupRow.id));
 
@@ -195,7 +200,16 @@ export async function POST(req: NextRequest) {
     case "call.completed": set.firstCallAt = first(trialAccounts.firstCallAt); break;
     case "trunk.connected": case "number.added": set.carrierConnectedAt = first(trialAccounts.carrierConnectedAt); break;
     case "card.added": set.paymentMethodAddedAt = first(trialAccounts.paymentMethodAddedAt); break;
-    case "plan.changed": if (e.plan_status) set.planStatus = e.plan_status; if (e.product) set.product = e.product; if (e.trial_ends_at) set.trialEndsAt = new Date(e.trial_ends_at); break;
+    case "plan.changed":
+      if (e.plan_status) set.planStatus = e.plan_status;
+      if (e.product) set.product = e.product;
+      if (e.trial_ends_at) {
+        set.trialEndsAt = new Date(e.trial_ends_at);
+        // Trial extended after the worker retired the row (trial_ended): put it back in the queue.
+        if (!e.plan_status && new Date(e.trial_ends_at).getTime() > Date.now())
+          set.planStatus = sql`case when ${trialAccounts.planStatus} = ${NURTURE_ENDED_STATUS} then 'trial' else ${trialAccounts.planStatus} end`;
+      }
+      break;
     case "trial.cancelled": set.planStatus = "cancelled"; break;
   }
   await db.update(trialAccounts).set(set).where(eq(trialAccounts.appId, e.app_id));
