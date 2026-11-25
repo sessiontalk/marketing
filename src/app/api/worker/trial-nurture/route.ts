@@ -4,7 +4,7 @@ import { activities, contacts, trialAccounts, trialNurtureSteps, unsubscribeToke
 import { and, asc, eq, gt, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { isDripSendingEnabled } from "@/lib/killSwitch";
 import { decide, dueAt, render, renderSubject, Step, NURTURE_PRODUCTS, sequenceKey } from "@/lib/trialNurture/schedule";
-import { NURTURE_BATCH, NURTURE_ENDED_STATUS, retireReason, lateFirstStepConfig, lateFirstStepAction } from "@/lib/trialNurture/queue";
+import { NURTURE_BATCH, NURTURE_ENDED_STATUS, retireReason, lateFirstStepConfig, lateFirstStepAction, manualOverrideConfig, manualOverride, countsAsEmailed } from "@/lib/trialNurture/queue";
 import { nurtureAlert, errorMessage } from "@/lib/trialNurture/alerts";
 import { copyFor } from "@/lib/trialNurture/copy";
 import { missingLinkFields, assertSafeNurtureText, UNFILLED_PLACEHOLDER_RE } from "@/lib/trialNurture/links";
@@ -43,6 +43,7 @@ async function run(req: NextRequest) {
     await db.update(trialAccounts).set({ updatedAt: now }).where(inArray(trialAccounts.id, rows.map((r) => r.t.id)));
   }
   const late = lateFirstStepConfig();
+  const overrides = manualOverrideConfig();
   let sent = 0, skipped = 0, failed = 0, held = 0, retired = 0, heldLate = 0;
   const failures: Array<{ trialAccountId: string; appId: string; step: number; error: string }> = [];
   // Finished rows leave the queue: plan_status='ended' (revived by trial.started / email.verified / plan.changed).
@@ -81,7 +82,7 @@ async function run(req: NextRequest) {
       console.log(JSON.stringify({ level: "info", msg: "trial_nurture_hold_junk", trialAccountId: t.id, reason: deliverability }));
       held++; continue;
     }
-    let done = await db.select({ step: trialNurtureSteps.step, status: trialNurtureSteps.status, createdAt: trialNurtureSteps.createdAt }).from(trialNurtureSteps).where(eq(trialNurtureSteps.trialAccountId, t.id));
+    let done = await db.select({ step: trialNurtureSteps.step, status: trialNurtureSteps.status, reason: trialNurtureSteps.reason, createdAt: trialNurtureSteps.createdAt }).from(trialNurtureSteps).where(eq(trialNurtureSteps.trialAccountId, t.id));
     // Softphone v2: lazy stamp + renumber legacy indices before decide/claim (idempotent).
     if (t.product === "generic_softphone") {
       const rawSteps = done.map((r) => r.step);
@@ -95,9 +96,9 @@ async function run(req: NextRequest) {
         await db.execute(sql`UPDATE trial_nurture_steps SET step = step + 100 WHERE trial_account_id = ${t.id} AND step IN (4, 5)`);
         await db.execute(sql`UPDATE trial_nurture_steps SET step = 6 WHERE trial_account_id = ${t.id} AND step = 105`);
         await db.execute(sql`UPDATE trial_nurture_steps SET step = 5 WHERE trial_account_id = ${t.id} AND step = 104`);
-        done = await db.select({ step: trialNurtureSteps.step, status: trialNurtureSteps.status, createdAt: trialNurtureSteps.createdAt }).from(trialNurtureSteps).where(eq(trialNurtureSteps.trialAccountId, t.id));
+        done = await db.select({ step: trialNurtureSteps.step, status: trialNurtureSteps.status, reason: trialNurtureSteps.reason, createdAt: trialNurtureSteps.createdAt }).from(trialNurtureSteps).where(eq(trialNurtureSteps.trialAccountId, t.id));
       } else if (!rawSteps.includes(SOFTPHONE_SEQ_MARKER_STEP)) {
-        done = await db.select({ step: trialNurtureSteps.step, status: trialNurtureSteps.status, createdAt: trialNurtureSteps.createdAt }).from(trialNurtureSteps).where(eq(trialNurtureSteps.trialAccountId, t.id));
+        done = await db.select({ step: trialNurtureSteps.step, status: trialNurtureSteps.status, reason: trialNurtureSteps.reason, createdAt: trialNurtureSteps.createdAt }).from(trialNurtureSteps).where(eq(trialNurtureSteps.trialAccountId, t.id));
       }
     }
     // Signup finish-setup re-check before any send: the contact's OTHER trial rows (any plan_status)
@@ -109,7 +110,8 @@ async function run(req: NextRequest) {
       const h = contactTrialHistory(others);
       signupGuard = { contactHasPriorProductTrial: h.hasPriorProductTrial, contactHasProject: h.hasProject, signupCreatedAt: signupCreatedAtOf(c) };
     }
-    const sentTimes = done.filter((r) => r.status === "sent" || r.status === "sending").map((r) => (r.createdAt ? new Date(r.createdAt).getTime() : 0));
+    // A manual catch-up skip counts as an email: the next worker email waits >= 24h after it.
+    const sentTimes = done.filter(countsAsEmailed).map((r) => (r.createdAt ? new Date(r.createdAt).getTime() : 0));
     const lastSentAt = sentTimes.length ? new Date(Math.max(...sentTimes)) : null;
     let d = decide({ ...t, product: t.product as any, planStatus: t.planStatus as any, unsubscribed: !!c.unsubscribed, emailVerified: !!c.emailVerified, sentSteps: done.map((r) => r.step as Step), lastSentAt, ...signupGuard }, now);
     if (d.action === "wait" || d.action === "stop") { await retire(t.id, t.product, done.map((r) => r.step), d); continue; }
@@ -122,7 +124,14 @@ async function run(req: NextRequest) {
     // Backlog guard: a never-emailed row whose first email is long overdue is held (default) or
     // skipped until Head of Marketing decides; NURTURE_LATE_FIRST_STEP_POLICY / _MAX_HOURS.
     if (d.action === "send") {
-      const lateAction = lateFirstStepAction({ everEmailed: sentTimes.length > 0, dueAt: dueAt(d.step, { ...t, product: t.product as any, planStatus: t.planStatus as any, unsubscribed: !!c.unsubscribed, emailVerified: !!c.emailVerified, sentSteps: done.map((r) => r.step as Step), lastSentAt }), now, enrolledAt: t.enrolledAt, ...late });
+      const stepDueAt = dueAt(d.step, { ...t, product: t.product as any, planStatus: t.planStatus as any, unsubscribed: !!c.unsubscribed, emailVerified: !!c.emailVerified, sentSteps: done.map((r) => r.step as Step), lastSentAt });
+      // Per-contact decision (env lists) wins over the global policy.
+      const manual = manualOverride({ cfg: overrides, email: c.email, appId: t.appId, product: t.product, hasAnyStep: done.some((r) => r.step > 0), dueAt: stepDueAt, now, maxHours: late.maxHours });
+      const lateAction = manual ? null : lateFirstStepAction({ everEmailed: sentTimes.length > 0, dueAt: stepDueAt, now, enrolledAt: t.enrolledAt, ...late });
+      if (manual) {
+        console.log(JSON.stringify({ level: "info", msg: "trial_nurture_manual_skip", trialAccountId: t.id, appId: t.appId, step: d.step, reason: manual.reason }));
+        d = { step: d.step, action: "skip", reason: manual.reason };
+      }
       if (lateAction === "hold") {
         console.log(JSON.stringify({ level: "info", msg: "trial_nurture_hold_late_first_step", trialAccountId: t.id, appId: t.appId, step: d.step }));
         held++; heldLate++; continue;

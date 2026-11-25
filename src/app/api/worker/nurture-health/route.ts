@@ -7,7 +7,7 @@ import { NURTURE_PRODUCTS, sequenceKey, type Step } from "@/lib/trialNurture/sch
 import { copyFor } from "@/lib/trialNurture/copy";
 import { isExcludedWorkspace, isExcludedEmail, junkReason } from "@/lib/trialNurture/exclusions";
 import { VERIFY_REMINDER_PRODUCT, SIGNUP_PRODUCT, contactTrialHistory, signupCreatedAtOf } from "@/lib/trialNurture/signupEnrolment";
-import { lateFirstStepConfig } from "@/lib/trialNurture/queue";
+import { lateFirstStepConfig, countsAsEmailed } from "@/lib/trialNurture/queue";
 import { assessNurtureHealth, type HealthRow } from "@/lib/trialNurture/nurtureHealth";
 import { nurtureAlert } from "@/lib/trialNurture/alerts";
 
@@ -35,7 +35,7 @@ async function run(req: NextRequest) {
     ));
   const ids = queued.map((r) => r.t.id);
   const steps = ids.length
-    ? await db.select({ id: trialNurtureSteps.trialAccountId, step: trialNurtureSteps.step, status: trialNurtureSteps.status })
+    ? await db.select({ id: trialNurtureSteps.trialAccountId, step: trialNurtureSteps.step, status: trialNurtureSteps.status, reason: trialNurtureSteps.reason })
       .from(trialNurtureSteps).where(inArray(trialNurtureSteps.trialAccountId, ids))
     : [];
   const others = ids.length
@@ -47,7 +47,7 @@ async function run(req: NextRequest) {
 
   const rows: HealthRow[] = queued.map(({ t, c }) => {
     const mine = steps.filter((s) => s.id === t.id && s.step > 0);
-    const emailed = mine.filter((s) => s.status === "sent" || s.status === "sending").map((s) => s.step);
+    const emailed = mine.filter(countsAsEmailed).map((s) => s.step);
     const isSignup = t.product === SIGNUP_PRODUCT || t.product === VERIFY_REMINDER_PRODUCT;
     const h = isSignup ? contactTrialHistory(others.filter((o) => o.contactId === c.id && o.id !== t.id)) : null;
     const key = sequenceKey(t.product);
