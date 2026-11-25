@@ -12,7 +12,9 @@ const H = 3_600_000, D = 24 * H, MIN = 60_000;
 /** The deploy env for the HoM/Nauman decision of 25 Nov 2026 10:48 GMT. */
 export const DECISION_ENV = {
   NURTURE_LATE_FIRST_STEP_POLICY: "send",
-  NURTURE_LATE_FIRST_STEP_SKIP: "jacopman247@protonmail.com:teams_phone,shellanunnain@gmail.com:teams_phone,vickers@daskob.com:teams_phone,admintel@arkys.com:generic_softphone,mahlodireuben88@gmail.com:signup_finish_setup",
+  // Unscoped emails: the CRM product of each row (teams_phone vs teams_business) was not read, and
+  // skip-first only touches a row's overdue first step, so no product scope is needed here.
+  NURTURE_LATE_FIRST_STEP_SKIP: "jacopman247@protonmail.com,shellanunnain@gmail.com,vickers@daskob.com,admintel@arkys.com,mahlodireuben88@gmail.com",
   NURTURE_SKIP_ALL_STEPS: "junction1153@gmail.com:signup_finish_setup",
 };
 
@@ -98,6 +100,7 @@ test("manualOverride: skip-first only for an overdue first step with no step rec
   const w = { cfg, email: "jacopman247@protonmail.com", appId: "Weathgroup", product: "teams_phone", now, maxHours: 12 };
   assert.deepEqual(manualOverride({ ...w, hasAnyStep: false, dueAt: old }), { reason: MANUAL_CATCHUP_REASON });
   assert.equal(manualOverride({ ...w, hasAnyStep: true, dueAt: old }), null, "later steps are not skipped");
+  assert.deepEqual(manualOverride({ ...w, product: "teams_business", hasAnyStep: false, dueAt: old }), { reason: MANUAL_CATCHUP_REASON }, "matches whatever product the CRM row has");
   assert.equal(manualOverride({ ...w, hasAnyStep: false, dueAt: new Date(now.getTime() - H) }), null, "a fresh first step (e.g. a future trial) is not skipped");
   assert.equal(manualOverride({ ...w, email: "aidt96752@gmail.com", appId: "Project1s", hasAnyStep: false, dueAt: old }), null);
   const j = { cfg, email: "junction1153@gmail.com", appId: "signup:bik3Z9bkyi", product: "signup_finish_setup", now, maxHours: 12, dueAt: old };
