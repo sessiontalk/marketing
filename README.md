@@ -132,6 +132,14 @@ first email, silently. Rules now (`src/lib/trialNurture/queue.ts`, tests in `tes
   `NURTURE_LATE_FIRST_STEP_POLICY`: `hold` (default: not sent, not claimed, retried each run),
   `skip` (step recorded skipped `late_first_step`; later steps continue at max 1/day) or `send`.
   Optional `NURTURE_LATE_FIRST_STEP_ENROLLED_BEFORE` (ISO time) limits the guard to older enrolments.
+- **Per-contact overrides** (win over the policy; entries are `email`, `email:product`, `app_id` or
+  `app_id:product`, comma-separated, case-insensitive):
+  - `NURTURE_LATE_FIRST_STEP_SKIP`: the overdue first step (row has no step yet, >MAX_HOURS late) is
+    recorded skipped `late_first_step_manual`, e.g. when a manual catch-up email replaces it. The skip
+    counts as an email for the one-per-24h rule, so the next worker email is >=24h later; later steps
+    follow the schedule.
+  - `NURTURE_SKIP_ALL_STEPS`: every step is recorded skipped `manual_no_email` (no email), then the row
+    is retired. Scope with `:product` (e.g. `:signup_finish_setup`) so a later trial still gets nurture.
 - **Alerts** (`src/lib/trialNurture/alerts.ts`): every alert is a `console.error` JSON line with
   `"level":"alert"`. Email alerts are OFF unless `NURTURE_ALERT_EMAIL_ENABLED=true`; recipients
   `NURTURE_ALERT_TO` (default naumansulaiman@googlemail.com, comma-separated), from support@.

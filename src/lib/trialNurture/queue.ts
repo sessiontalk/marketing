@@ -119,3 +119,72 @@ export function lateFirstStepAction(o: {
   if (o.now.getTime() - o.dueAt.getTime() <= o.maxHours * 3_600_000) return null;
   return o.policy;
 }
+
+// ─── Per-contact overrides (HoM/Nauman decision 25 Nov 2026 10:48 GMT) ───────────
+
+/** Step reason when a manual catch-up email (sent outside the worker) replaces the overdue first step. */
+export const MANUAL_CATCHUP_REASON = "late_first_step_manual";
+/** Step reason when a contact must get no email at all from this sequence. */
+export const MANUAL_NO_EMAIL_REASON = "manual_no_email";
+
+/** One entry: `email`, `email:product`, `app_id` or `app_id:product` (case-insensitive). */
+export interface ContactMatcher { email?: string; appId?: string; product?: string }
+
+/**
+ * Parse a comma/whitespace list. An entry with "@" matches contacts.email (stored lowercased by
+ * every CRM insert path); otherwise it matches trial_accounts.app_id (SessionCloud app id, or
+ * `signup:<objectId>` for signup rows). Optional `:product` restricts the entry to one product.
+ */
+export function parseContactList(raw: string | undefined): ContactMatcher[] {
+  return (raw || "").split(/[\s,]+/).map((s) => s.trim()).filter(Boolean).map((entry) => {
+    const lower = entry.toLowerCase();
+    // app ids can contain ':' (signup:<objectId>), so only a known product suffix is split off.
+    const m = lower.match(/^(.*):(teams_phone|teams_business|hosted_pbx|generic_softphone|signup_finish_setup|signup_verify_reminder)$/);
+    const id = m ? m[1] : lower;
+    const product = m ? m[2] : undefined;
+    return id.includes("@") ? { email: id, product } : { appId: id, product };
+  });
+}
+
+export function matchesContactList(list: readonly ContactMatcher[], r: { email: string | null | undefined; appId: string | null | undefined; product: string }): boolean {
+  const email = (r.email || "").trim().toLowerCase();
+  const appId = (r.appId || "").trim().toLowerCase();
+  return list.some((m) =>
+    (m.product === undefined || m.product === r.product) &&
+    ((m.email !== undefined && m.email === email) || (m.appId !== undefined && m.appId === appId)));
+}
+
+/**
+ * NURTURE_LATE_FIRST_STEP_SKIP: the overdue first step of matching rows is recorded skipped
+ * (MANUAL_CATCHUP_REASON) whatever NURTURE_LATE_FIRST_STEP_POLICY says. Only when the row has no
+ * step recorded yet and that step is more than maxHours overdue; later steps follow the schedule,
+ * spaced >= 24h after the skip (the skip counts as an email for the one-per-day rule).
+ * NURTURE_SKIP_ALL_STEPS: every step of matching rows is recorded skipped (MANUAL_NO_EMAIL_REASON),
+ * so the row completes and is retired without any email. Use `email:product` to scope it.
+ */
+export function manualOverrideConfig(env: Record<string, string | undefined> = process.env) {
+  return { skipFirst: parseContactList(env.NURTURE_LATE_FIRST_STEP_SKIP), skipAll: parseContactList(env.NURTURE_SKIP_ALL_STEPS) };
+}
+
+export function manualOverride(o: {
+  cfg: { skipFirst: readonly ContactMatcher[]; skipAll: readonly ContactMatcher[] };
+  email: string | null | undefined;
+  appId: string | null | undefined;
+  product: string;
+  /** Any real step (step > 0) already recorded for this row (sent/sending/skipped/failed). */
+  hasAnyStep: boolean;
+  dueAt: Date | null;
+  now: Date;
+  maxHours: number;
+}): { reason: typeof MANUAL_CATCHUP_REASON | typeof MANUAL_NO_EMAIL_REASON } | null {
+  const who = { email: o.email, appId: o.appId, product: o.product };
+  if (matchesContactList(o.cfg.skipAll, who)) return { reason: MANUAL_NO_EMAIL_REASON };
+  if (o.hasAnyStep || !o.dueAt) return null;
+  if (o.now.getTime() - o.dueAt.getTime() <= o.maxHours * 3_600_000) return null;
+  return matchesContactList(o.cfg.skipFirst, who) ? { reason: MANUAL_CATCHUP_REASON } : null;
+}
+
+/** Step rows that count as "an email went out" for spacing and the backlog guard. */
+export function countsAsEmailed(r: { status: string; reason?: string | null }): boolean {
+  return r.status === "sent" || r.status === "sending" || (r.status === "skipped" && r.reason === MANUAL_CATCHUP_REASON);
+}
