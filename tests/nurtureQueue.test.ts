@@ -190,6 +190,7 @@ test("event route revives retired rows: trial.started upgrade, email.verified re
 });
 
 test("daily health cron is scheduled under the public /api/worker/ prefix", () => {
-  const v = JSON.parse(readFileSync("vercel.json", "utf8"));
-  assert.ok(v.crons.some((c: any) => c.path === "/api/worker/nurture-health"));
+  const cron = readFileSync("deploy/cron.d/marketing-crm", "utf8");
+  assert.match(cron, /^0 7 \* \* \* crm \/usr\/local\/bin\/crm-worker nurture-health$/m);
+  assert.match(readFileSync("deploy/crm-worker.sh", "utf8"), /sequences\|trial-nurture\|nurture-health\) job=/);
 });

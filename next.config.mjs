@@ -1,7 +1,9 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Self-contained server (.next/standalone/server.js) for the droplet's Docker image.
+  output: "standalone",
   experimental: {
-    serverComponentsExternalPackages: ["@neondatabase/serverless"],
+    serverComponentsExternalPackages: ["pg"],
   },
 };
 

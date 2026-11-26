@@ -1,0 +1,17 @@
+# Never send env files, local builds or dependencies into the build context.
+.env
+.env.*
+.vercel
+.vercel-env/
+node_modules/
+.next/
+.git/
+.github/
+*.tsbuildinfo
+next-env.d.ts
+# Newsletter run-time copy and lists (also git-ignored)
+scripts/newsletter-issue01/*.template.html
+scripts/newsletter-issue01/*.template.txt
+scripts/newsletter-issue01/*.csv
+scripts/newsletter-issue01/counts.json
+deploy/

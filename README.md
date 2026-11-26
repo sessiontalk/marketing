@@ -5,8 +5,8 @@ Email marketing and CRM tool for SessionTalk.
 ## Stack
 
 - **Next.js 14** (App Router)
-- **Vercel** (hosting + cron)
-- **Neon / Vercel Postgres** (database)
+- **DigitalOcean droplet** (Docker container behind nginx, system cron) — see [`deploy/README.md`](deploy/README.md)
+- **PostgreSQL 17** on the same droplet (node-postgres `pg`, pool max 10)
 - **Resend** (email delivery)
 - **Drizzle ORM** (database queries)
 - **react-email** (email templates)
@@ -41,7 +41,9 @@ npm run dev
 |---|---|---|
 | `/api/events/signup` | POST | Webhook for new signups (from cloud.sessiontalk.co.uk) |
 | `/api/import/csv` | POST | Upload CSV file via form data |
-| `/api/worker/sequences` | POST | Cron-triggered sequence processor (every 5 min) |
+| `/api/worker/sequences` | GET/POST | Cron-triggered sequence processor (every 5 min, `Authorization: Bearer $CRON_SECRET`) |
+| `/api/worker/trial-nurture` | GET/POST | Cron-triggered trial nurture (every 10 min, `Authorization: Bearer $CRON_SECRET`) |
+| `/api/worker/health` | GET | Health check: `200 {"ok":true,"db":"up"}` or `503 {"ok":false,"db":"down"}` |
 | `/api/unsubscribe?token=xxx` | GET/POST | Unsubscribe handler |
 
 ## Database
@@ -78,21 +80,19 @@ await fetch('https://marketing.sessiontalk.co.uk/api/events/signup', {
 });
 ```
 
-## Deploy to Vercel
+## Deploy (DigitalOcean droplet)
 
-```bash
-# Connect to Vercel
-vercel
+The app runs as a Next.js standalone server in Docker on one droplet, with PostgreSQL 17 on the same host
+(`DATABASE_URL=postgresql://crm_app:…@127.0.0.1:5432/marketing`). GitHub Actions (`.github/workflows/docker.yml`)
+typechecks, tests and builds the image; on master it pushes `ghcr.io/sessiontalk/marketing-crm:<sha>` (private
+package). There is no deploy step: DevOps pulls and restarts by hand. Crons are system cron on the droplet
+(`deploy/cron.d/marketing-crm` → `deploy/crm-worker.sh`), not `vercel.json`.
 
-# Set environment variables in Vercel dashboard:
-# - DATABASE_URL
-# - RESEND_API_KEY
-# - WEBHOOK_SECRET
-# - CRON_SECRET (auto-set by Vercel Cron)
+Full notes: [`deploy/README.md`](deploy/README.md). Env values live only in `/etc/marketing-crm/*.env` on the
+droplet, never in this repo.
 
-# Deploy
-vercel --prod
-```
+When the database is unreachable, DB-backed API routes return `503 {"error":"database unavailable"}` with
+`Retry-After: 30` instead of a bare 500 (`src/lib/dbErrors.ts`).
 
 ## Email Templates
 
@@ -111,7 +111,7 @@ The welcome drip sequence:
 3. **120 hours (5 days)** — Upgrade CTA
 
 ## Automated email kill switch
-`DRIP_SENDING_ENABLED` must equal `true` for /api/worker/sequences or /api/worker/trial-nurture to send anything. Unset/any other value = no-op. Both workers also require `CRON_SECRET` (Vercel Cron sends `Authorization: Bearer $CRON_SECRET` on a GET).
+`DRIP_SENDING_ENABLED` must equal `true` for /api/worker/sequences or /api/worker/trial-nurture to send anything. Unset/any other value = no-op. Both workers also require `CRON_SECRET` (system cron on the droplet sends `Authorization: Bearer $CRON_SECRET` on a GET via `deploy/crm-worker.sh`). On a new droplet `DRIP_SENDING_ENABLED` stays unset (off).
 The legacy softphone "Welcome Drip" sequence is retired in code and can never send.
 
 ## Trial-nurture queue, backlog guard and alerts

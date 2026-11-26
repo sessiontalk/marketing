@@ -102,11 +102,13 @@ test("missing / malformed / unknown tokens: 400/404 with no DB access for malfor
 
 test("unsubscribe route: GET delegates read-only, POST reads ?token= (one-click) or form token", () => {
   const src = readFileSync("src/app/api/unsubscribe/route.ts", "utf8");
-  assert.match(src, /export async function GET[\s\S]*handleUnsubscribe\("GET"/);
-  assert.match(src, /export async function POST[\s\S]*searchParams\.get\("token"\)[\s\S]*formData\(\)[\s\S]*handleUnsubscribe\("POST"/);
+  assert.match(src, /async function handleGET[\s\S]*handleUnsubscribe\("GET"/);
+  assert.match(src, /async function handlePOST[\s\S]*searchParams\.get\("token"\)[\s\S]*formData\(\)[\s\S]*handleUnsubscribe\("POST"/);
   // State changes only live in store.unsubscribe, which only the POST path reaches.
-  const getBody = src.slice(src.indexOf("export async function GET"), src.indexOf("export async function POST"));
+  const getBody = src.slice(src.indexOf("async function handleGET"), src.indexOf("async function handlePOST"));
   assert.doesNotMatch(getBody, /update\(/);
+  assert.match(src, /export const GET = withDbErrors\(handleGET\);/);
+  assert.match(src, /export const POST = withDbErrors\(handlePOST\);/);
 });
 
 // ─── Nurture worker ─────────────────────────────────────────────────

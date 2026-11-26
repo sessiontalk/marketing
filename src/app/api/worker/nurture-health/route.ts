@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
+import { withDbErrors } from "@/lib/dbErrors";
 import { contacts, trialAccounts, trialNurtureSteps } from "@/db/schema";
 import { and, eq, gt, gte, inArray, isNull, or } from "drizzle-orm";
 import { isDripSendingEnabled } from "@/lib/killSwitch";
@@ -74,5 +75,6 @@ async function run(req: NextRequest) {
   return NextResponse.json({ enabled: true, ...result }, { status: result.ok ? 200 : 503 });
 }
 
-export const GET = run;
-export const POST = run;
+const handler = withDbErrors(run);
+export const GET = handler; // system cron (crm-worker nurture-health) invokes GET with Bearer CRON_SECRET
+export const POST = handler;

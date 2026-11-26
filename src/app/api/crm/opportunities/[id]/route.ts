@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
+import { withDbErrors } from "@/lib/dbErrors";
 import { accounts, opportunities } from "@/db/schema";
 import { requireApiKey } from "@/lib/api-auth";
 import { eq } from "drizzle-orm";
@@ -13,7 +14,7 @@ function isStage(v: unknown): v is Stage {
 
 type RouteContext = { params: { id: string } };
 
-export async function GET(req: NextRequest, ctx: RouteContext) {
+async function handleGET(req: NextRequest, ctx: RouteContext) {
   const denied = requireApiKey(req);
   if (denied) return denied;
 
@@ -29,7 +30,7 @@ export async function GET(req: NextRequest, ctx: RouteContext) {
   return NextResponse.json({ opportunity });
 }
 
-export async function PATCH(req: NextRequest, ctx: RouteContext) {
+async function handlePATCH(req: NextRequest, ctx: RouteContext) {
   const denied = requireApiKey(req);
   if (denied) return denied;
 
@@ -127,7 +128,7 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
   return NextResponse.json({ opportunity });
 }
 
-export async function DELETE(req: NextRequest, ctx: RouteContext) {
+async function handleDELETE(req: NextRequest, ctx: RouteContext) {
   const denied = requireApiKey(req);
   if (denied) return denied;
 
@@ -141,3 +142,7 @@ export async function DELETE(req: NextRequest, ctx: RouteContext) {
   }
   return NextResponse.json({ opportunity, deleted: true });
 }
+
+export const GET = withDbErrors(handleGET);
+export const PATCH = withDbErrors(handlePATCH);
+export const DELETE = withDbErrors(handleDELETE);

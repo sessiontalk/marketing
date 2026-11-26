@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { decide, dueAt, skipReason, TrialState } from "../src/lib/trialNurture/schedule";
 import { GENERIC_SOFTPHONE_COPY } from "../src/lib/trialNurture/copyHostedGeneric";
 import { NURTURE_FROM_EMAIL, NURTURE_REPLY_TO } from "../src/lib/email";
@@ -26,7 +26,10 @@ const base = (o: Partial<TrialState> = {}): TrialState => ({
   unsubscribed: false, sentSteps: [], ...o,
 });
 
-test("verbatim copy vs pack html/*.txt bodies and sequence.json subjects", () => {
+// The approved copy pack is kept off this public repo (box only), so CI skips this check.
+const packPresent = existsSync(`${pack}/html/sequence.json`);
+
+test("verbatim copy vs pack html/*.txt bodies and sequence.json subjects", { skip: !packPresent && "approved copy pack not present (box only)" }, () => {
   const seq = JSON.parse(readFileSync(`${pack}/html/sequence.json`, "utf8"));
   assert.equal(GENERIC_SOFTPHONE_COPY.length, 6);
   for (const c of GENERIC_SOFTPHONE_COPY) {
